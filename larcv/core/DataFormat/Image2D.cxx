@@ -1,6 +1,7 @@
 #include "larcv/core/Base/larbys.h"
 #include "Image2D.h"
 #include <iostream>
+#include <sstream>
 #include <string.h>
 #include <stdio.h>
 namespace larcv {
@@ -63,13 +64,17 @@ namespace larcv {
   void Image2D::clear_data() { for (auto& v : _img) v = 0.; }
 
   void Image2D::set_pixel( size_t index, float value ) {
-    if ( index >= _img.size() ) throw larbys("Out-of-bound pixel set request!");
+    std::stringstream ss;
+    ss << "Out-of-bound pixel set request! index=" << index << std::endl;
+    if ( index >= _img.size() ) throw larbys(ss.str().c_str());
     _img[ index ] = value;
   }
 
   void Image2D::set_pixel( size_t row, size_t col, float value ) {
+    std::stringstream ss;
+    ss << "Out-of-bound pixel set request! (" << row << "," << col << ")" << std::endl;
     if ( row >= _meta.rows() || col >= _meta.cols() )
-      throw larbys("Out-of-bound pixel set request!");
+      throw larbys(ss.str().c_str());
     _img[ _meta.index(row, col) ] = value;
   }
 
@@ -220,39 +225,52 @@ namespace larcv {
          crop_meta.max_x() > _meta.max_x() || crop_meta.max_y() > _meta.max_y() )
       throw larbys("Cropping region contains region outside the image!");
 
-    size_t min_col = _meta.col(crop_meta.min_x() + _meta.pixel_width()  / 2. );
-    size_t max_col = _meta.col(crop_meta.max_x() - _meta.pixel_width()  / 2. );
-    size_t min_row = _meta.row(crop_meta.min_y() + _meta.pixel_height() / 2. );
-    size_t max_row = _meta.row(crop_meta.max_y() - _meta.pixel_height() / 2. );
-    /*
-    std::cout<<"Cropping! Requested:" << std::endl
-       << crop_meta.dump() << std::overlay
+    // translate cropped region to positions in our image, taking into account rounding
+    size_t min_col = _meta.col(crop_meta.min_x());
+    float min_x    = _meta.pos_x(min_col);
 
-       <<"Original:"<<std::endl
-       <<_meta.dump()<<std::endl;
+    size_t max_col = _meta.col(crop_meta.max_x());
+    float max_x    = _meta.pos_x(max_col);
+
+    size_t min_row = _meta.row(crop_meta.min_y());
+    float min_y    = _meta.pos_y(min_row);
+
+    size_t max_row = _meta.row(crop_meta.max_y());
+    float max_y    = _meta.pos_y(max_row);
+
+    
+    std::cout<<"Cropping! Requested:" << crop_meta.dump() << std::endl;
+
+    std::cout << "Original:" <<_meta.dump()<<std::endl;
 
     std::cout<<min_col<< " => " << max_col << " ... " << min_row << " => " << max_row << std::endl;
     std::cout<<_meta.width() << " / " << _meta.cols() << " = " << _meta.pixel_width() << std::endl;
-    */
-    ImageMeta res_meta( (max_col - min_col + 1) * _meta.pixel_width(),
-                        (max_row - min_row + 1) * _meta.pixel_height(),
-                        (max_row - min_row + 1),
-                        (max_col - min_col + 1),
-                        _meta.min_x() + min_col * _meta.pixel_width(),
-                        _meta.min_y() + min_row * _meta.pixel_height(),
-                        _meta.id(), _meta.unit());
 
-    std::vector<float> img;
-    img.resize(res_meta.cols() * res_meta.rows());
+    // ImageMeta res_meta( (max_col - min_col + 1) * _meta.pixel_width(),
+    //                     (max_row - min_row + 1) * _meta.pixel_height(),
+    //                     (max_row - min_row + 1),
+    //                     (max_col - min_col + 1),
+    //                     _meta.min_x() + min_col * _meta.pixel_width(),
+    //                     _meta.min_y() + min_row * _meta.pixel_height(),
+    //                     _meta.id(), _meta.unit());
+    ImageMeta res_meta( min_x, min_y, max_x, max_y, max_row-min_row, max_col-min_col, _meta.id(), _meta.unit() );
+    std::cout << "cropped output res_meta: " << res_meta.dump() << std::endl;
+		       
+    // std::vector<float> img;
+    // img.resize(res_meta.cols() * res_meta.rows());
 
-    size_t column_size = max_row - min_row + 1;
-    for (size_t col = min_col; col <= max_col; ++col)
-
-      memcpy(&(img[(col - min_col)*column_size]), &(_img[_meta.index(min_row, col)]), column_size * sizeof(float));
+    // size_t column_size = max_row - min_row + 1;
+    // for (size_t col = min_col; col <= max_col; ++col)
+    //   memcpy(&(img[(col - min_col)*column_size]), &(_img[_meta.index(min_row, col)]), column_size * sizeof(float));
 
     //std::cout<<"Cropped:" << std::endl << res_meta.dump()<<std::endl;
 
-    return Image2D(std::move(res_meta), std::move(img));
+    Image2D imgout( res_meta );
+    for (size_t c=min_col; c<max_col; c++)
+      for (size_t r=min_row; r<max_row; r++)
+	imgout.set_pixel( r-min_row, c-min_col, pixel(r,c) );
+    
+    return imgout;
   }
 
   Image2D Image2D::crop(const BBox2D& bbox, const DistanceUnit_t unit) const
