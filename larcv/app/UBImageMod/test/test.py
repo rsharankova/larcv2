@@ -16,8 +16,9 @@ scfg="""InputProducer: \"wire\"
 OutputBBox2DProducer: \"detsplit\"
 BBoxPixelHeight: 512
 BBoxPixelWidth: 512
-CropInModule: true
 OutputCroppedProducer: \"detsplit\"
+CropInModule: false
+DebugImage: true
 """
 
 fcfg = open("ubsplit.cfg",'w')
