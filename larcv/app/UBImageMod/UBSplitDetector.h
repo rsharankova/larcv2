@@ -49,9 +49,14 @@ namespace larcv {
     // config parameters
     std::string _input_producer;
     std::string _output_bbox_producer;
-    float _box_depth_x_cm;
-    float _box_height_y_cm;
-    float _box_width_z_cm;
+    std::string _output_img_producer;
+    bool _enable_img_crop;
+    /* float _box_depth_x_cm; */
+    /* float _box_height_y_cm; */
+    /* float _box_width_z_cm; */
+    int _box_pixel_height;
+    int _box_pixel_width;
+    
   };
 
   /**
