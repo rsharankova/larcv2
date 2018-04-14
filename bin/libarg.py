@@ -19,6 +19,9 @@ else:
     libs=[x for x in commands.getoutput('larcv-config --libs').split() if not x.startswith('-llarcv')]
     libs+= commands.getoutput('root-config --libs').split()
 
+if 'LARLITE_BASEDIR' in os.environ:
+    libs += commands.getoutput('larlite-config --libs').split()
+
 if 'PYTHON_LIB' in os.environ:
     libs+= [" -L{} -lpython{}.{}".format(os.environ["PYTHON_LIB"].strip(), 
         sys.version_info.major, 

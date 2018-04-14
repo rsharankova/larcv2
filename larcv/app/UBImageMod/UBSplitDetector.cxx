@@ -43,10 +43,9 @@ namespace larcv {
       throw larbys();
     }
     const std::vector< larcv::Image2D >& img_v = input_image->image2d_array();
-
-    auto output_bbox  = mgr.get_data<larcv::EventBBox2D>(_output_bbox_producer);
-
-    auto output_imgs  = mgr.get_data<larcv::EventImage2D>(_output_img_producer);
+    
+    larcv::EventBBox2D*  output_bbox  = (larcv::EventBBox2D*)mgr.get_data( "bbox2d",_output_bbox_producer);
+    larcv::EventImage2D* output_imgs  = (larcv::EventImage2D*)mgr.get_data("image2d",_output_img_producer);
 
     // ----------------------------------------------------------------
 
@@ -186,9 +185,9 @@ namespace larcv {
 
 	if ( _enable_img_crop ) {
 	  larcv::Image2D cropped = img_v[p].crop( bbox );
-	  output_imgs.emplace( std::move(cropped) );
+	  output_imgs->emplace( std::move(cropped) );
 	}
-	output_bbox.emplace_back( std::move(bbox) );
+	output_bbox->emplace_back( std::move(bbox) );
 
 	if ( _debug_img ) {
 	  // fill in coverage map
@@ -202,8 +201,8 @@ namespace larcv {
       }
     }
 
-    LARCV_DEBUG() << "Number of cropped images: " << output_imgs.image2d_array().size() << std::endl;
-    LARCV_DEBUG() << "Number of cropped images per plane: " << output_imgs.image2d_array().size()/3 << std::endl;
+    LARCV_DEBUG() << "Number of cropped images: " << output_imgs->image2d_array().size() << std::endl;
+    LARCV_DEBUG() << "Number of cropped images per plane: " << output_imgs->image2d_array().size()/3 << std::endl;
 
     if ( _debug_img ) {
       auto outev_coverage = (larcv::EventImage2D*)(mgr.get_data("image2d", "coverage"));
