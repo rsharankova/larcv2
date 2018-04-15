@@ -26,6 +26,7 @@ namespace larcv {
     _box_pixel_height      = cfg.get<int>("BBoxPixelHeight");
     _box_pixel_width       = cfg.get<int>("BBoxPixelWidth");
     _debug_img             = cfg.get<bool>("DebugImage",false);
+    _max_images            = cfg.get<int>("MaxImages",-1);
   }
 
   void UBSplitDetector::initialize()
@@ -138,6 +139,9 @@ namespace larcv {
       
       for ( int p=0; p<(int)img_v.size(); p++ ) {
 
+	if ( _max_images>0 && _max_images<=(int)output_imgs->image2d_array().size() )
+	  continue;
+
 	float center_w = geo->NearestWire( pos, p );
 	
 	int center_r = img_v[p].meta().row( center_t );
@@ -199,6 +203,9 @@ namespace larcv {
 	}
 	
       }
+
+      if ( _max_images>0 && _max_images<=(int)output_imgs->image2d_array().size() )
+	break;
     }
 
     LARCV_DEBUG() << "Number of cropped images: " << output_imgs->image2d_array().size() << std::endl;

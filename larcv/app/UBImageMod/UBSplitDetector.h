@@ -54,6 +54,7 @@ namespace larcv {
     int _box_pixel_height;
     int _box_pixel_width;
     bool _debug_img;
+    int _max_images;
     
   };
 
