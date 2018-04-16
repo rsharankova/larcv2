@@ -19,6 +19,7 @@ BBoxPixelWidth: 512
 OutputCroppedProducer: \"detsplit\"
 CropInModule: false
 DebugImage: true
+MaxImages: 2
 """
 
 fcfg = open("ubsplit.cfg",'w')
