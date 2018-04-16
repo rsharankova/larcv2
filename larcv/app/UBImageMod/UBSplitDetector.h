@@ -53,6 +53,7 @@ namespace larcv {
     bool _enable_img_crop;
     int _box_pixel_height;
     int _box_pixel_width;
+    int _covered_z_width;
     bool _debug_img;
     int _max_images;
     

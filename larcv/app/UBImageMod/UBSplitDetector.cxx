@@ -1,4 +1,3 @@
-
 #ifndef __UBSPLITDETECTOR_CXX__
 #define __UBSPLITDETECTOR_CXX__
 
@@ -24,8 +23,9 @@ namespace larcv {
     _output_bbox_producer  = cfg.get<std::string>("OutputBBox2DProducer");
     _output_img_producer   = cfg.get<std::string>("OutputCroppedProducer");
     _enable_img_crop       = cfg.get<bool>("CropInModule",true);
-    _box_pixel_height      = cfg.get<int>("BBoxPixelHeight");
-    _box_pixel_width       = cfg.get<int>("BBoxPixelWidth");
+    _box_pixel_height      = cfg.get<int>("BBoxPixelHeight",512);
+    _box_pixel_width       = cfg.get<int>("BBoxPixelWidth",832);
+    _covered_z_width       = cfg.get<int>("CoveredZWidth",310);
     _debug_img             = cfg.get<bool>("DebugImage",false);
     _max_images            = cfg.get<int>("MaxImages",-1);
   }
@@ -59,14 +59,10 @@ namespace larcv {
 
     // --- image parameters ---
     // we aim to make an image where all y-charge has a partner to match against
-    float dudz = 0.3*2;
-    float dudy = 0.3*2/sqrt(3);
-    float detheight = 117.0*2.0;
-    int minuvwires = int(detheight/dudy); // min number of u/v wires to cover Y range of detector
-    int zwidth     = 310;
-    int uvwires_z  = zwidth*0.3/dudz;
-    int numuvwires = minuvwires+uvwires_z; // width of u/v target image
-
+    const float dudz = 0.3*2;
+    const float dudy = 0.3*2/sqrt(3);
+    const float detheight = 117.0*2.0;
+    int zwidth     = _covered_z_width;
     
     // --- x/tick divisions ----
 
@@ -81,7 +77,6 @@ namespace larcv {
 
     // --- z divisions ---------
 
-    int zpix_start = 0;
     int zcols      = img_v.front().meta().cols();
 
     //int zwidth     = _box_pixel_width;
@@ -101,12 +96,7 @@ namespace larcv {
 
     Double_t xyzStart[3];
     Double_t xyzEnd[3];
-    geo->WireEndPoints( 2, 3455, xyzStart, xyzEnd );
-    float z1max = xyzEnd[2];
 
-    std::cout << "z1max: " << z1max << std::endl;
-    int maxdu = 0;
-    
     for (int it=0; it<=nt; it++) {
 
       float tmid = startt + it*tstep;
@@ -134,11 +124,10 @@ namespace larcv {
 	int zcol0 = zwire - zwidth/2;
 	int zcol1 = zwire + zwidth/2;
 
-	// if ( zcol1>z1max )
-	//   zcol1 = z1max;
 	if ( zcol1>3455 )
 	  zcol1 = 3455;
-	
+
+	// determine range for u-plane
 	geo->WireEndPoints( 2, zcol0, xyzStart, xyzEnd );
 	float z0 = xyzStart[2];
 	Double_t zupt0[3] = { 0,+117.5, z0 };
@@ -146,7 +135,7 @@ namespace larcv {
 
 	geo->WireEndPoints( 2, zcol1, xyzStart, xyzEnd );
 	float z1 = xyzStart[2];
-	Double_t zupt1[3] = { 0,-116.5, z1-0.1 };
+	Double_t zupt1[3] = { 0,-117.5, z1-0.1 };
 	int ucol1 = 0;
 	if ( iz!=nz )
 	  ucol1 = geo->NearestWire( zupt1, 0 );
@@ -158,39 +147,73 @@ namespace larcv {
 	  ucol0 = 0;
 	}
 	
-
-	geo->WireEndPoints(0, ucol0, xyzStart, xyzEnd );
-	float uz0_s = xyzStart[2];
-	float uz0_e = xyzEnd[2];
-	geo->WireEndPoints(0, ucol1, xyzStart, xyzEnd );
-	float uz1_s = xyzStart[2];
-	float uz1_e = xyzEnd[2];
-	//std::cout << "u-wires start/end atz0=(" << uz0_s << "," << uz0_e << ")  atz1=(" << uz1_s << "," << uz1_e << ")" << std::endl;
-
+	// must fit in _box_pixe_width
 	int ddu = ucol1-ucol0;
-	int rdu = 832%ddu;
+	int rdu = _box_pixel_width%ddu;
+	int ndu = ddu/_box_pixel_width;
 	if ( rdu!= 0) {
-	  if ( ucol1+rdu<2400 )
-	    ucol1+=rdu;
-	  else
-	    ucol0-=rdu;
+	  if ( ndu==0 ) {
+	    // short, extend the end (or lower the start if near end)
+	    if ( ucol1+rdu<2400 )
+	      ucol1+=rdu;
+	    else
+	      ucol0-=rdu;
+	  }
+	  else {
+	    rdu = ddu%_box_pixel_width;
+	    // long, reduce the end
+	    ucol1 -= rdu;
+	  }
+	}
+
+	// determine v-plane
+	geo->WireEndPoints( 2, zcol0, xyzStart, xyzEnd );
+	z0 = xyzStart[2];
+	Double_t zvpt0[3] = { 0,-115.5, z0 };
+	int vcol0 = geo->NearestWire( zvpt0, 1 );
+	
+	geo->WireEndPoints( 2, zcol1, xyzStart, xyzEnd );
+	z1 = xyzStart[2];
+	Double_t zvpt1[3] = { 0,+117.5, z1-0.1 };
+	int vcol1 = 0;
+	if ( iz!=nz )
+	  vcol1 = geo->NearestWire( zvpt1, 1 );
+	else
+	  vcol1 = 2399;
+	int ddv = vcol1-vcol0;
+	int rdv = _box_pixel_width%ddv;
+	int ndv = ddv/_box_pixel_width;
+	if ( rdv!= 0) {
+	  if ( ndv==0 ) {
+	    // short, extend the end (or lower the start if near end)
+	    if ( vcol1+rdv<2400 )
+	      vcol1+=rdv;
+	    else
+	      vcol0-=rdv;
+	  }
+	  else {
+	    // long, redvce the end
+	    rdv = ddv%_box_pixel_width;
+	    vcol1 -= rdv;
+	  }
 	}
 	
-	if ( ucol1-ucol0 > maxdu )
-	  maxdu = ucol1-ucol0;
 	
 	std::cout << "Crop: z=[" << z0 << "," << z1 << "] zcol=[" << zcol0 << "," << zcol1 << "] "
 		  << "u=[" << ucol0 << "," << ucol1 << "] du=" << ucol1-ucol0 << " "
+		  << "v=[" << vcol0 << "," << vcol1 << "] dv=" << vcol1-vcol0 << " "
 		  << "t=[" << r1 << "," << r2 << "]"
 		  << std::endl;
 
-	std::vector<int> crop_coords(6);
+	std::vector<int> crop_coords(8);
 	crop_coords[0] = zcol0;
 	crop_coords[1] = zcol1;
 	crop_coords[2] = ucol0;
 	crop_coords[3] = ucol1;
-	crop_coords[4] = r1;
-	crop_coords[5] = r2;
+	crop_coords[4] = vcol0;
+	crop_coords[5] = vcol1;
+	crop_coords[6] = r1;
+	crop_coords[7] = r2;
 	
 	lattice.emplace_back( std::move(crop_coords) );
       }
@@ -218,10 +241,11 @@ namespace larcv {
       int y2 = cropcoords[1];
       int u1 = cropcoords[2];
       int u2 = cropcoords[3];
-      int t1 = cropcoords[4];
-      int t2 = cropcoords[5];
+      int v1 = cropcoords[4];
+      int v2 = cropcoords[5];
+      int t1 = cropcoords[6];
+      int t2 = cropcoords[7];
 
-      int ncols = maxdu; // the size of the image
       int nrows = _box_pixel_height;
 
       float mint = meta.pos_y(t1);
