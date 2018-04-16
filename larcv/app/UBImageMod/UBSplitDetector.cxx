@@ -265,30 +265,52 @@ namespace larcv {
       larcv::Image2D crop_up = img_v[0].crop( bbox );
       
       // prepare the y-plane
+      // we take the narrow range and try to put it in the center of the y-plane image
       const larcv::ImageMeta& ymeta = img_v[2].meta();
       int ycenter = (y1+y2)/2;
-      int ycmin   = ycenter - crop_up.meta().cols()/2;
-      if ( ycmin < 0)
-	ycmin = 0;
-      int ycmax   = ycmin + crop_up.meta().cols();
-      if ( ycmax>=3456 ) {
-	ycmax = 3455;
-	ycmin = ycmax - (int)crop_up.meta().cols();
+      int ycmin   = ycenter - (int)crop_up.meta().cols()/2;
+      //if ( ycmin < 0)
+      //ycmin = 0;
+      int ycmax   = ycmin + (int)crop_up.meta().cols();
+      //if ( ycmax>=3456 ) {
+      //ycmax = 3455;
+      //ycmin = ycmax - (int)crop_up.meta().cols();
+      //}
+      std::cout << ycmin << " " << ycmax << std::endl;
+      float miny = 0;
+      float maxy = 0;
+      if ( ycmin>=0 && ycmax<(int)ymeta.cols() ) {
+	miny = ymeta.pos_x( ycmin );
+	maxy = ymeta.pos_x( ycmax );
       }
-      float miny = ymeta.pos_x( ycmin );
-      float maxy = ymeta.pos_x( ycmax );
+      if ( ycmin<0 ) {
+	std::cout << "ycmin<0 " << ycmin << " " << ycmax  << " " << ymeta.pixel_width() << " " << ymeta.cols() << std::endl;
+	float pw = ymeta.pixel_width();
+	int diffy = ycmax-ycmin;
+	maxy = ymeta.pos_x( ycmax );
+	miny = maxy - float(diffy)*pw;
+      }
+      if ( ycmax>(int)ymeta.cols() ) {
+	miny = ymeta.pos_x( ycmin );
+	maxy = miny + (ycmax-ycmin)*ymeta.pixel_width();
+      }
+      std::cout << miny << " " << maxy << std::endl;
       larcv::ImageMeta crop_yp( miny, mint, maxy, maxt,
 				(maxt-mint)/ymeta.pixel_height(),
 				ycmax-ycmin,
 				ymeta.id() );
-      larcv::Image2D ytarget = img_v[2].crop( crop_yp );
-      // larcv::Image2D ytarget( crop_yp );
-      // ytarget.paint(0.0);
-      // for (int r=0; r<(int)crop_yp.rows(); r++) {
-      // 	for (int c=0; c<zwidth; c++) {
-      // 	  ytarget.set_pixel( r, ycenter-zwidth/2+c, img_v[2].pixel( t1+r, y1+c ) );
-      // 	}
-      // }
+      //larcv::Image2D ytarget = img_v[2].crop( crop_yp );
+       larcv::Image2D ytarget( crop_yp );
+       ytarget.paint(0.0);
+       for (int c=0; c<crop_yp.cols(); c++) {
+	 float cropx = crop_yp.pos_x(c);
+	 if ( cropx<ymeta.min_x() || cropx>=ymeta.max_x() )
+	   continue;
+	 int cropc = ymeta.col(cropx);
+	 for (int r=0; r<(int)crop_yp.rows(); r++) {
+	   ytarget.set_pixel( r, c, img_v[2].pixel( t1+r, cropc ) );
+	 }
+       }
       std::cout << ytarget.meta().dump() << std::endl;
 
       
