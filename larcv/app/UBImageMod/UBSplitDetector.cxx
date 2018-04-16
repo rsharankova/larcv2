@@ -59,9 +59,9 @@ namespace larcv {
 
     // --- image parameters ---
     // we aim to make an image where all y-charge has a partner to match against
-    const float dudz = 0.3*2;
-    const float dudy = 0.3*2/sqrt(3);
-    const float detheight = 117.0*2.0;
+    //const float dudz = 0.3*2;
+    //const float dudy = 0.3*2/sqrt(3);
+    //const float detheight = 117.0*2.0;
     int zwidth     = _covered_z_width;
     
     // --- x/tick divisions ----
@@ -216,6 +216,7 @@ namespace larcv {
 	crop_coords[7] = r2;
 	
 	lattice.emplace_back( std::move(crop_coords) );
+
       }
     }
     std::cout << "Num lattice points: " << lattice.size() << std::endl;
@@ -261,22 +262,32 @@ namespace larcv {
       const larcv::ImageMeta& umeta = img_v[0].meta();
       float minu = umeta.pos_x( u1 );
       float maxu = umeta.pos_x( u2 );
-      larcv::BBox2D bbox( minu, mint, maxu, maxt, img_v[0].meta().id() );
-      larcv::Image2D crop_up = img_v[0].crop( bbox );
+      larcv::BBox2D bbox_u( minu, mint, maxu, maxt, img_v[0].meta().id() );
+      larcv::ImageMeta metacropu( minu, mint, maxu, maxt, nrows, _box_pixel_width, img_v[0].meta().id() );
+
+      if ( _enable_img_crop ) {
+	// crop if we are asked to save the image, and not just the bounding box
+	larcv::Image2D crop_up = img_v[0].crop( bbox_u );
+	output_imgs->emplace( std::move(crop_up) );
+      }
+	
+
+      // prepare the v-plane
+      const larcv::ImageMeta& vmeta = img_v[1].meta();
+      float minv = vmeta.pos_x( v1 );
+      float maxv = vmeta.pos_x( v2 );
+      larcv::BBox2D bbox_v( minv, mint, maxv, maxt, img_v[1].meta().id() );
+      if ( _enable_img_crop ) {
+	larcv::Image2D crop_vp = img_v[1].crop( bbox_v );
+	output_imgs->emplace( std::move(crop_vp) );
+      }
       
       // prepare the y-plane
       // we take the narrow range and try to put it in the center of the y-plane image
       const larcv::ImageMeta& ymeta = img_v[2].meta();
       int ycenter = (y1+y2)/2;
-      int ycmin   = ycenter - (int)crop_up.meta().cols()/2;
-      //if ( ycmin < 0)
-      //ycmin = 0;
-      int ycmax   = ycmin + (int)crop_up.meta().cols();
-      //if ( ycmax>=3456 ) {
-      //ycmax = 3455;
-      //ycmin = ycmax - (int)crop_up.meta().cols();
-      //}
-      std::cout << ycmin << " " << ycmax << std::endl;
+      int ycmin   = ycenter - (int)metacropu.cols()/2;
+      int ycmax   = ycmin + (int)metacropu.cols();
       float miny = 0;
       float maxy = 0;
       if ( ycmin>=0 && ycmax<(int)ymeta.cols() ) {
@@ -284,7 +295,6 @@ namespace larcv {
 	maxy = ymeta.pos_x( ycmax );
       }
       if ( ycmin<0 ) {
-	std::cout << "ycmin<0 " << ycmin << " " << ycmax  << " " << ymeta.pixel_width() << " " << ymeta.cols() << std::endl;
 	float pw = ymeta.pixel_width();
 	int diffy = ycmax-ycmin;
 	maxy = ymeta.pos_x( ycmax );
@@ -294,29 +304,30 @@ namespace larcv {
 	miny = ymeta.pos_x( ycmin );
 	maxy = miny + (ycmax-ycmin)*ymeta.pixel_width();
       }
-      std::cout << miny << " " << maxy << std::endl;
       larcv::ImageMeta crop_yp( miny, mint, maxy, maxt,
 				(maxt-mint)/ymeta.pixel_height(),
 				ycmax-ycmin,
 				ymeta.id() );
-      //larcv::Image2D ytarget = img_v[2].crop( crop_yp );
-       larcv::Image2D ytarget( crop_yp );
-       ytarget.paint(0.0);
-       for (int c=0; c<crop_yp.cols(); c++) {
-	 float cropx = crop_yp.pos_x(c);
-	 if ( cropx<ymeta.min_x() || cropx>=ymeta.max_x() )
-	   continue;
-	 int cropc = ymeta.col(cropx);
-	 for (int r=0; r<(int)crop_yp.rows(); r++) {
-	   ytarget.set_pixel( r, c, img_v[2].pixel( t1+r, cropc ) );
-	 }
-       }
-      std::cout << ytarget.meta().dump() << std::endl;
+      larcv::BBox2D bbox_y( miny, miny, maxy, maxt, ymeta.id() );
 
+      if ( _enable_img_crop ) {
+	larcv::Image2D ytarget( crop_yp );
+	ytarget.paint(0.0);
+	for (int c=0; c<(int)crop_yp.cols(); c++) {
+	  float cropx = crop_yp.pos_x(c);
+	  if ( cropx<ymeta.min_x() || cropx>=ymeta.max_x() )
+	    continue;
+	  int cropc = ymeta.col(cropx);
+	  for (int r=0; r<(int)crop_yp.rows(); r++) {
+	    ytarget.set_pixel( r, c, img_v[2].pixel( t1+r, cropc ) );
+	  }
+	}
+	std::cout << "Cropped Target-Y: " << ytarget.meta().dump() << std::endl;
+      }
       
-      output_imgs->emplace( std::move(ytarget) );
-      output_imgs->emplace( std::move(crop_up) );
-      output_bbox->emplace_back( std::move(bbox) );
+      output_bbox->emplace_back( std::move(bbox_u) );
+      output_bbox->emplace_back( std::move(bbox_v) );
+      output_bbox->emplace_back( std::move(bbox_y) );
 
       // if ( _debug_img ) {
       // 	// fill in coverage map

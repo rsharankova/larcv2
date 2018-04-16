@@ -15,7 +15,8 @@ io.initialize()
 scfg="""InputProducer: \"wire\"
 OutputBBox2DProducer: \"detsplit\"
 BBoxPixelHeight: 512
-BBoxPixelWidth: 512
+BBoxPixelWidth: 832
+CoveredZWidth: 310
 OutputCroppedProducer: \"detsplit\"
 CropInModule: false
 DebugImage: true
