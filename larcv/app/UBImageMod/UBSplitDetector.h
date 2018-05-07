@@ -19,6 +19,10 @@
 
 #include "larcv/core/Processor/ProcessBase.h"
 #include "larcv/core/Processor/ProcessFactory.h"
+
+#include "larcv/core/DataFormat/BBox.h"
+#include "larcv/core/DataFormat/Image2D.h"
+
 namespace larcv {
 
   /**
@@ -44,6 +48,22 @@ namespace larcv {
 
     void finalize();
 
+    // algo functions
+    // static functions are defined to allow them to be reused in a stand-alone manner
+    static std::vector<larcv::BBox2D> defineBoundingBoxFromCropCoords( const std::vector<larcv::Image2D>& img_v,
+								       const int box_pixel_width, const int box_pixel_height, 
+								       const int t1, const int t2,
+								       const int u1, const int u2,
+								       const int v1, const int v2,
+								       const int y1, const int y2);
+    
+    static void CropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
+				 const std::vector<larcv::Image2D>& img_v,
+				 const int y1, const int y2, bool fill_y_image,				 
+				 std::vector<larcv::Image2D>& output_imgs );
+
+    
+
   private:
 
     // config parameters
@@ -56,7 +76,11 @@ namespace larcv {
     int _covered_z_width;
     bool _debug_img;
     int _max_images;
-    
+    // randomize crops
+    bool _randomize_crops;
+    int  _randomize_maxcrops;
+    int  _randomize_attempts;
+    float _randomize_minfracpix;
   };
 
   /**

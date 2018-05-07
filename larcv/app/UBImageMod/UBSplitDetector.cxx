@@ -19,15 +19,60 @@ namespace larcv {
 
   void UBSplitDetector::configure(const PSet& cfg)
   {
-    _input_producer        = cfg.get<std::string>("InputProducer");    
+    // operating parameters
+    // name of tree from which to get ADC images and their meta
+    _input_producer        = cfg.get<std::string>("InputProducer");
+
+    // name of producer to store output bounding boxes for each crop
+    // all bboxes stored in unrolled vector in (u,v,y) plane order
+    // i.e. (bbox0_u, bbox0_v, bbox0_y, bbox1_u, bbox1_v, bbox1_y, ...)
     _output_bbox_producer  = cfg.get<std::string>("OutputBBox2DProducer");
-    _output_img_producer   = cfg.get<std::string>("OutputCroppedProducer");
+
+    // we can ask this module to do the crop for us. intended to work
+    // with ADC images. other truth-label images, you are on your own
     _enable_img_crop       = cfg.get<bool>("CropInModule",true);
+
+    // if we do the crop, this is used to name the output tree
+    _output_img_producer   = cfg.get<std::string>("OutputCroppedProducer");
+
+    // set dimensions of bounding box
+    // pixel height will set the tick bounds of the image
     _box_pixel_height      = cfg.get<int>("BBoxPixelHeight",512);
-    _box_pixel_width       = cfg.get<int>("BBoxPixelWidth",832);
+    
+    // this parameter sets the width of the image
+    // it is the width in the Z dimension that defines visible Y-wires
+    // the U and V wires saved in the image are chosen to completely cover
+    // this range of Y-wires. This means, the range of filled pixels in U,V
+    // will be larger than Y. Y-wires are centered and the unused pixel columns
+    // are blanked out
     _covered_z_width       = cfg.get<int>("CoveredZWidth",310);
+    
+    // enforces a maximum picture width. we clip the edges of the
+    // Y-overlapping U,V wires
+    _box_pixel_width       = cfg.get<int>("BBoxPixelWidth",832);
+
+    // dump a png for debuggin
     _debug_img             = cfg.get<bool>("DebugImage",false);
+
+    // we will split the detector completely (if not in random mode)
+    // this caps the number of images. useful for debug, as this is
+    // a fairly slow module
     _max_images            = cfg.get<int>("MaxImages",-1);
+
+    // we can also choose to randomly crop within the detector
+    // random (t,z) coordinate will be chosen and that location
+    // will be cropped
+    _randomize_crops       = cfg.get<bool>("RandomizeCrops",false);
+
+    // max number of crops
+    _randomize_maxcrops    = cfg.get<int>("MaxRandomCrops",1);
+
+    // max number of attempts
+    _randomize_attempts    = cfg.get<int>("MaxRandomAttempts",10);
+
+    // max fraction of pixels with above threshold values
+    // else we don't keep it
+    _randomize_minfracpix  = cfg.get<float>("MinFracPixelsInCrop",0.005);    
   }
 
   void UBSplitDetector::initialize()
@@ -79,7 +124,6 @@ namespace larcv {
 
     int zcols      = img_v.front().meta().cols();
 
-    //int zwidth     = _box_pixel_width;
     int zend       = zcols-zwidth/2;
     int zstart     = zwidth/2;
     int zspan      = zend-zstart;
@@ -367,6 +411,160 @@ namespace larcv {
     return true;
   }
 
+  std::vector<larcv::BBox2D> UBSplitDetector::defineBoundingBoxFromCropCoords( const std::vector<larcv::Image2D>& img_v,
+									       const int box_pixel_width, const int box_pixel_height, 
+									       const int t1, const int t2,
+									       const int u1, const int u2,
+									       const int v1, const int v2,
+									       const int y1, const int y2) {
+
+    // takes pre-defined image bounds on all 3 planes (given in min/max row/col)
+    // note, box_pixel_width and box_pixel_height are meant to be the same
+    // variable as member variables _box_pixel_width and _box_pixel_height.
+    // we pass them here in order to make this function static, so it can be used as a stand-alone function.
+    
+    // input
+    // ------
+    // img_v: source ADC images from which we are cropping
+    // box_pixel_width: corresponds to _box_pixel_width
+    // box_pixel_height: corresponds to _box_pixel_height
+    // (x)1, (x)2, where x=t,u,v,y
+    // row bounds (t) and col bounds (u,v,y) max-exclusive [x1,x2)
+    //
+    // output
+    // -------
+    // (return) vector of bounding boxes defined for (u,v,y) plane
+
+    std::vector< larcv::BBox2D > bbox_vec; // we create one for each plane
+    bbox_vec.reserve(img_v.size());
+    
+    const larcv::ImageMeta& meta = img_v.front().meta(); // it is assumed that time-coordinate meta same between planes
+
+    // define tick and row bounds
+    int nrows = box_pixel_height;
+    float mint = meta.pos_y(t1);
+    float maxt = meta.pos_y(t2);
+
+    // we crop an image with W x H = maxdu x _box_pixel_height
+    // we embed in the center, the Y-plane source image with zwidth across
+    // we crop the entire range for the U or V plane, the target images
+    
+    //LARCV_DEBUG() << "Defining bounding boxes" << std::endl;
+    
+    // prepare the u-plane
+    const larcv::ImageMeta& umeta = img_v[0].meta();
+    float minu = umeta.pos_x( u1 );
+    float maxu = umeta.pos_x( u2 );
+    larcv::BBox2D bbox_u( minu, mint, maxu, maxt, img_v[0].meta().id() );
+    larcv::ImageMeta metacropu( minu, mint, maxu, maxt, nrows, box_pixel_width, img_v[0].meta().id() );
+
+    // prepare the v-plane
+    const larcv::ImageMeta& vmeta = img_v[1].meta();
+    float minv = vmeta.pos_x( v1 );
+    float maxv = vmeta.pos_x( v2 );
+    larcv::BBox2D bbox_v( minv, mint, maxv, maxt, img_v[1].meta().id() );
+
+    // prepare the y-plane
+    // we take the narrow range and try to put it in the center of the y-plane image
+    const larcv::ImageMeta& ymeta = img_v[2].meta();
+    int ycenter = (y1+y2)/2;
+    int ycmin   = ycenter - (int)metacropu.cols()/2;
+    int ycmax   = ycmin + (int)metacropu.cols();
+    float miny = 0;
+    float maxy = 0;
+    if ( ycmin>=0 && ycmax<(int)ymeta.cols() ) {
+      miny = ymeta.pos_x( ycmin );
+      maxy = ymeta.pos_x( ycmax );
+    }
+    if ( ycmin<0 ) {
+      float pw = ymeta.pixel_width();
+      int diffy = ycmax-ycmin;
+      maxy = ymeta.pos_x( ycmax );
+      miny = maxy - float(diffy)*pw;
+    }
+    if ( ycmax>(int)ymeta.cols() ) {
+      miny = ymeta.pos_x( ycmin );
+      maxy = miny + (ycmax-ycmin)*ymeta.pixel_width();
+    }
+    larcv::ImageMeta crop_yp( miny, mint, maxy, maxt,
+			      (maxt-mint)/ymeta.pixel_height(),
+			      ycmax-ycmin,
+			      ymeta.id() );
+    larcv::BBox2D bbox_y( miny, miny, maxy, maxt, ymeta.id() );
+
+    bbox_vec.emplace_back( std::move(bbox_u) );
+    bbox_vec.emplace_back( std::move(bbox_v) );
+    bbox_vec.emplace_back( std::move(bbox_y) );    
+
+    return bbox_vec;
+    
+  }
+
+  void UBSplitDetector::CropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
+					 const std::vector<larcv::Image2D>& img_v,
+					 const int y1, const int y2, bool fill_y_image,
+					 std::vector<larcv::Image2D>& output_imgs ) {
+    // inputs
+    // ------
+    // bbox_v, vector of bounding boxes for (u,v,y)
+    // img_v, source adc images
+    // y1, y2: range of y-wires fully covered by U,V
+    //
+    // outputs
+    // --------
+    // output_imgs, cropped output image2d
+
+
+    // get bounding boxes
+    const larcv::BBox2D& bbox_u = bbox_vec[0];
+    const larcv::BBox2D& bbox_v = bbox_vec[1];
+    const larcv::BBox2D& bbox_y = bbox_vec[2];
+
+    // y-plane meta
+    const larcv::ImageMeta& ymeta = img_v[2].meta();
+    
+    // U,V are cropped using image2d routines
+    // Y copies range of y-wires into center of output crop
+
+    larcv::Image2D crop_up = img_v[0].crop( bbox_u );
+    output_imgs.emplace_back( std::move(crop_up) );
+    
+    larcv::Image2D crop_vp = img_v[1].crop( bbox_v );
+    output_imgs.emplace_back( std::move(crop_vp) );
+
+    
+    larcv::ImageMeta crop_yp( bbox_y.min_x(), bbox_y.min_y(), bbox_y.max_x(), bbox_y.max_y(),
+			      (int)(bbox_y.height()/ymeta.pixel_height()),
+			      (int)(bbox_y.width()/ymeta.pixel_width()),
+			      ymeta.id() );
+
+    if ( fill_y_image ) {
+      // we fill y-columns will all values
+      larcv::Image2D crop_yimg = img_v[2].crop( bbox_y );
+      output_imgs.emplace_back( std::move(crop_yimg) );
+    }
+    else {
+      // we only fill y-wires that are fully covered by U,V wires
+      int t1 = ymeta.row( bbox_y.min_y() );
+      
+      larcv::Image2D ytarget( crop_yp );
+      ytarget.paint(0.0);
+      for (int c=0; c<(int)crop_yp.cols(); c++) {
+	float cropx = crop_yp.pos_x(c);
+	if ( cropx<y1 || cropx>=y2 )
+	  continue;
+	int cropc = ymeta.col(cropx);
+	for (int r=0; r<(int)crop_yp.rows(); r++) {
+	  ytarget.set_pixel( r, c, img_v[2].pixel( t1+r, cropc ) );
+	}
+      }
+      output_imgs.emplace_back( std::move( ytarget ) );
+    }
+
+    return;
+  }
+     
+  
   void UBSplitDetector::finalize()
   {}
 
