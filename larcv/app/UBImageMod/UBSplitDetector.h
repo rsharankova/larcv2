@@ -21,7 +21,7 @@
 #include "larcv/core/Processor/ProcessFactory.h"
 
 #include "larcv/core/DataFormat/BBox.h"
-#include "larcv/core/DataFormat/Image2D.h"
+#include "larcv/core/DataFormat/EventImage2D.h"
 
 namespace larcv {
 
@@ -57,10 +57,10 @@ namespace larcv {
 								       const int v1, const int v2,
 								       const int y1, const int y2);
     
-    static void CropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
+    static void cropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
 				 const std::vector<larcv::Image2D>& img_v,
 				 const int y1, const int y2, bool fill_y_image,				 
-				 std::vector<larcv::Image2D>& output_imgs );
+				 larcv::EventImage2D& output_imgs );
 
     
 
@@ -74,6 +74,7 @@ namespace larcv {
     int _box_pixel_height;
     int _box_pixel_width;
     int _covered_z_width;
+    bool _complete_y_crop;
     bool _debug_img;
     int _max_images;
     // randomize crops

@@ -51,6 +51,9 @@ namespace larcv {
     // Y-overlapping U,V wires
     _box_pixel_width       = cfg.get<int>("BBoxPixelWidth",832);
 
+    // by default, we leave ends of y-image blank, but we have option to fill completely
+    _complete_y_crop      = cfg.get<bool>("FillCroppedYImageCompletely",false);
+    
     // dump a png for debuggin
     _debug_img             = cfg.get<bool>("DebugImage",false);
 
@@ -291,96 +294,16 @@ namespace larcv {
       int t1 = cropcoords[6];
       int t2 = cropcoords[7];
 
-      int nrows = _box_pixel_height;
-
-      float mint = meta.pos_y(t1);
-      float maxt = meta.pos_y(t2);
-
-      // we crop an image with W x H = maxdu x _box_pixel_height
-      // we embed in the center, the Y-plane source image with zwidth across
-      // we crop the entire range for the U or V plane, the target images
-
-      LARCV_DEBUG() << "======= CROP ===================" << std::endl;
+      std::vector<larcv::BBox2D> bbox_vec = defineBoundingBoxFromCropCoords( img_v, _box_pixel_width, _box_pixel_height,
+									     t1, t2, u1, u2, v1, v2, y1, y2 );
       
-      // prepare the u-plane
-      const larcv::ImageMeta& umeta = img_v[0].meta();
-      float minu = umeta.pos_x( u1 );
-      float maxu = umeta.pos_x( u2 );
-      larcv::BBox2D bbox_u( minu, mint, maxu, maxt, img_v[0].meta().id() );
-      larcv::ImageMeta metacropu( minu, mint, maxu, maxt, nrows, _box_pixel_width, img_v[0].meta().id() );
-
       if ( _enable_img_crop ) {
-	// crop if we are asked to save the image, and not just the bounding box
-	larcv::Image2D crop_up = img_v[0].crop( bbox_u );
-	output_imgs->emplace( std::move(crop_up) );
+	cropUsingBBox2D( bbox_vec, img_v, y1, y2, _complete_y_crop, *output_imgs );
       }
-	
 
-      // prepare the v-plane
-      const larcv::ImageMeta& vmeta = img_v[1].meta();
-      float minv = vmeta.pos_x( v1 );
-      float maxv = vmeta.pos_x( v2 );
-      larcv::BBox2D bbox_v( minv, mint, maxv, maxt, img_v[1].meta().id() );
-      if ( _enable_img_crop ) {
-	larcv::Image2D crop_vp = img_v[1].crop( bbox_v );
-	output_imgs->emplace( std::move(crop_vp) );
+      for ( auto &bbox : bbox_vec ) {
+	output_bbox->emplace_back( std::move(bbox) );
       }
-      
-      // prepare the y-plane
-      // we take the narrow range and try to put it in the center of the y-plane image
-      const larcv::ImageMeta& ymeta = img_v[2].meta();
-      int ycenter = (y1+y2)/2;
-      int ycmin   = ycenter - (int)metacropu.cols()/2;
-      int ycmax   = ycmin + (int)metacropu.cols();
-      float miny = 0;
-      float maxy = 0;
-      if ( ycmin>=0 && ycmax<(int)ymeta.cols() ) {
-	miny = ymeta.pos_x( ycmin );
-	maxy = ymeta.pos_x( ycmax );
-      }
-      if ( ycmin<0 ) {
-	float pw = ymeta.pixel_width();
-	int diffy = ycmax-ycmin;
-	maxy = ymeta.pos_x( ycmax );
-	miny = maxy - float(diffy)*pw;
-      }
-      if ( ycmax>(int)ymeta.cols() ) {
-	miny = ymeta.pos_x( ycmin );
-	maxy = miny + (ycmax-ycmin)*ymeta.pixel_width();
-      }
-      larcv::ImageMeta crop_yp( miny, mint, maxy, maxt,
-				(maxt-mint)/ymeta.pixel_height(),
-				ycmax-ycmin,
-				ymeta.id() );
-      larcv::BBox2D bbox_y( miny, miny, maxy, maxt, ymeta.id() );
-
-      if ( _enable_img_crop ) {
-	larcv::Image2D ytarget( crop_yp );
-	ytarget.paint(0.0);
-	for (int c=0; c<(int)crop_yp.cols(); c++) {
-	  float cropx = crop_yp.pos_x(c);
-	  if ( cropx<ymeta.min_x() || cropx>=ymeta.max_x() )
-	    continue;
-	  int cropc = ymeta.col(cropx);
-	  for (int r=0; r<(int)crop_yp.rows(); r++) {
-	    ytarget.set_pixel( r, c, img_v[2].pixel( t1+r, cropc ) );
-	  }
-	}
-	std::cout << "Cropped Target-Y: " << ytarget.meta().dump() << std::endl;
-      }
-      
-      output_bbox->emplace_back( std::move(bbox_u) );
-      output_bbox->emplace_back( std::move(bbox_v) );
-      output_bbox->emplace_back( std::move(bbox_y) );
-
-      // if ( _debug_img ) {
-      // 	// fill in coverage map
-      // 	for (int r=minr; r<maxr; r++) {
-      // 	  for (int c=minc; c<maxc; c++) {
-      // 	    coverage_v[p].set_pixel( r,c, coverage_v[p].pixel(r,c)+1.0 );
-      // 	  }
-      // 	}
-      // }
       
     }///end of loop over lattice
 
@@ -500,10 +423,10 @@ namespace larcv {
     
   }
 
-  void UBSplitDetector::CropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
+  void UBSplitDetector::cropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
 					 const std::vector<larcv::Image2D>& img_v,
 					 const int y1, const int y2, bool fill_y_image,
-					 std::vector<larcv::Image2D>& output_imgs ) {
+					 larcv::EventImage2D& output_imgs ) {
     // inputs
     // ------
     // bbox_v, vector of bounding boxes for (u,v,y)
@@ -512,7 +435,7 @@ namespace larcv {
     //
     // outputs
     // --------
-    // output_imgs, cropped output image2d
+    // output_imgs, cropped output image2d instances filled into eventimage2d container
 
 
     // get bounding boxes
@@ -527,10 +450,10 @@ namespace larcv {
     // Y copies range of y-wires into center of output crop
 
     larcv::Image2D crop_up = img_v[0].crop( bbox_u );
-    output_imgs.emplace_back( std::move(crop_up) );
+    output_imgs.emplace( std::move(crop_up) );
     
     larcv::Image2D crop_vp = img_v[1].crop( bbox_v );
-    output_imgs.emplace_back( std::move(crop_vp) );
+    output_imgs.emplace( std::move(crop_vp) );
 
     
     larcv::ImageMeta crop_yp( bbox_y.min_x(), bbox_y.min_y(), bbox_y.max_x(), bbox_y.max_y(),
@@ -541,7 +464,7 @@ namespace larcv {
     if ( fill_y_image ) {
       // we fill y-columns will all values
       larcv::Image2D crop_yimg = img_v[2].crop( bbox_y );
-      output_imgs.emplace_back( std::move(crop_yimg) );
+      output_imgs.emplace( std::move(crop_yimg) );
     }
     else {
       // we only fill y-wires that are fully covered by U,V wires
@@ -558,7 +481,7 @@ namespace larcv {
 	  ytarget.set_pixel( r, c, img_v[2].pixel( t1+r, cropc ) );
 	}
       }
-      output_imgs.emplace_back( std::move( ytarget ) );
+      output_imgs.emplace( std::move( ytarget ) );
     }
 
     return;
