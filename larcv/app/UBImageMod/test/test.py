@@ -1,4 +1,4 @@
-import ROOT
+import ROOT as rt
 from larcv import larcv
 
 
@@ -20,9 +20,9 @@ OutputCroppedProducer: \"detsplit\"
 BBoxPixelHeight: 512
 BBoxPixelWidth: 832
 CoveredZWidth: 310
-FillCroppedYImageCompletely: false
+FillCroppedYImageCompletely: true
 DebugImage: false
-MaxImages: 3
+MaxImages: 5
 RandomizeCrops: true
 MaxRandomAttempts: 50
 MinFracPixelsInCrop: 0.0001
@@ -51,6 +51,23 @@ nentries = 1
 for n in range(nentries):
     io.read_entry(n)
     algo.process( io )
+
+    detsplit = io.get_data( "image2d", "detsplit" )
+
+    h_v = {}
+    for i in range(0,detsplit.image2d_array().size()):
+        h_v[i] = larcv.as_th2d( detsplit.image2d_array()[i], "test%d"%(i) )
+    print h_v
+
+    c = rt.TCanvas("c","c",1500,400)
+    c.Divide(3,1)
+    for i in range(len(h_v)/3):
+        for j in range(3):
+            c.cd(j+1)
+            h_v[3*i+j].Draw("COLZ")
+
+        c.Update()
+        raw_input()
     io.save_entry()
 
 io.finalize()

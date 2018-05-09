@@ -152,9 +152,8 @@ namespace larcv {
 	float tmid = startt + it*tstep;
 	
 	for (int iz=0; iz<=nz; iz++) {
-	  
-	  int zwire = zstart + iz*zstep;
-	  
+
+	  float zwire = zstart + zstep*iz;
 	  std::vector<int> crop_coords = defineImageBoundsFromPosZT( zwire, tmid, zwidth, dtick,
 								     _box_pixel_width, _box_pixel_height,
 								     img_v );
@@ -169,7 +168,12 @@ namespace larcv {
       TRandom3 rand(time(NULL));
       for (int iatt=0; iatt<_randomize_attempts; iatt++) {
 	
-	float z = zstart + zspan*rand.Uniform();
+	float z;
+	if ( !_complete_y_crop )
+	  z = zstart + zspan*rand.Uniform();
+	else
+	  z = _box_pixel_width + (zcols-_box_pixel_width)*rand.Uniform();
+	
 	float t = startt + dtickimg*rand.Uniform();
 
 	std::vector<int> crop_coords = defineImageBoundsFromPosZT( z, t, zwidth, dtick,
@@ -195,8 +199,6 @@ namespace larcv {
 
       if ( _max_images>0 && _max_images<=(int)(output_imgs->image2d_array().size()/3) )
 	break;
-      
-      std::cout << "imgs filled: " << output_imgs->image2d_array().size()/3 << std::endl;
       
       int y1 = cropcoords[0];
       int y2 = cropcoords[1];
@@ -414,8 +416,6 @@ namespace larcv {
       }
       frac_occupied /= float(yimg.meta().rows()*yimg.meta().cols());
 
-      std::cout << "frac occupied: " << frac_occupied << std::endl;
-      
       if ( frac_occupied<minpixfrac )
 	saveimg = false;
     }
