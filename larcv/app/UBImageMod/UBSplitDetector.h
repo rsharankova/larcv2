@@ -57,10 +57,16 @@ namespace larcv {
 								       const int v1, const int v2,
 								       const int y1, const int y2);
     
-    static void cropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
+    static bool cropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
 				 const std::vector<larcv::Image2D>& img_v,
-				 const int y1, const int y2, bool fill_y_image,				 
+				 const int y1, const int y2, bool fill_y_image,
+				 const float minpixfrac,
 				 larcv::EventImage2D& output_imgs );
+    
+    static std::vector<int> defineImageBoundsFromPosZT( const float zwire, const float tmid, const float zwidth, const float dtick,
+							const int box_pixel_width, const int box_pixel_height,
+							const std::vector<larcv::Image2D>& img_v );
+    
 
     
 
@@ -77,9 +83,8 @@ namespace larcv {
     bool _complete_y_crop;
     bool _debug_img;
     int _max_images;
-    // randomize crops
+    // randomize cropping parameters
     bool _randomize_crops;
-    int  _randomize_maxcrops;
     int  _randomize_attempts;
     float _randomize_minfracpix;
   };

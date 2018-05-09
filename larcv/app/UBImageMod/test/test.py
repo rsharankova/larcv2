@@ -2,7 +2,7 @@ import ROOT
 from larcv import larcv
 
 
-superafile = "/media/hdd2/larflow/xfer/larcv_5477923_0.root"
+superafile = "/media/hdd2/taritree/larflow/xfer/larcv_5477923_0.root"
 
 io = larcv.IOManager(larcv.IOManager.kBOTH)
 io.add_in_file( superafile )
@@ -12,15 +12,20 @@ io.initialize()
 # -------------------------------------
 # UBSplitDetector
 
-scfg="""InputProducer: \"wire\"
+scfg="""Verbosity: 0
+InputProducer: \"wire\"
 OutputBBox2DProducer: \"detsplit\"
+CropInModule: true
+OutputCroppedProducer: \"detsplit\"
 BBoxPixelHeight: 512
 BBoxPixelWidth: 832
 CoveredZWidth: 310
-OutputCroppedProducer: \"detsplit\"
-CropInModule: false
-DebugImage: true
-MaxImages: 2
+FillCroppedYImageCompletely: false
+DebugImage: false
+MaxImages: 3
+RandomizeCrops: true
+MaxRandomAttempts: 50
+MinFracPixelsInCrop: 0.0001
 """
 
 fcfg = open("ubsplit.cfg",'w')

@@ -1,6 +1,8 @@
 #ifndef __UBSPLITDETECTOR_CXX__
 #define __UBSPLITDETECTOR_CXX__
 
+#include <ctime>
+
 #include "UBSplitDetector.h"
 #include "larcv/core/DataFormat/EventBBox.h"
 #include "larcv/core/DataFormat/EventImage2D.h"
@@ -8,6 +10,9 @@
 //larlite
 #include "LArUtil/Geometry.h"
 #include "LArUtil/LArProperties.h"
+
+// ROOT TRandom3
+#include "TRandom3.h"
 
 namespace larcv {
 
@@ -67,15 +72,14 @@ namespace larcv {
     // will be cropped
     _randomize_crops       = cfg.get<bool>("RandomizeCrops",false);
 
-    // max number of crops
-    _randomize_maxcrops    = cfg.get<int>("MaxRandomCrops",1);
-
-    // max number of attempts
+    // max number of bounding boxes to generate
+    // but we only save the number of images according to MaxImages
     _randomize_attempts    = cfg.get<int>("MaxRandomAttempts",10);
 
     // max fraction of pixels with above threshold values
     // else we don't keep it
-    _randomize_minfracpix  = cfg.get<float>("MinFracPixelsInCrop",0.005);    
+    // if value is 0 or less, then we do not enforce this cut
+    _randomize_minfracpix  = cfg.get<float>("MinFracPixelsInCrop",-1.0);    
   }
 
   void UBSplitDetector::initialize()
@@ -99,9 +103,6 @@ namespace larcv {
 
     // ----------------------------------------------------------------
 
-    // get classes UB info
-    const larutil::Geometry* geo       = larutil::Geometry::GetME();
-    
     // first define the lattice of 3D points
     // set lattice (y,z) pitch using width of image
 
@@ -134,139 +135,50 @@ namespace larcv {
     if ( abs( (zwidth/2)*nz - zspan )!=0 )
       nz++;
     float zstep = float(zspan)/float(nz);
-    
-    LARCV_DEBUG() << "nt,nz: " << nt  << " " << nz << std::endl;
-    LARCV_DEBUG() << "start (z,t): (" << zstart << ", " << startt << ")" << std::endl;
-    
+
+    // store cropped coordinates here
     std::vector< std::vector<int> > lattice;
-    lattice.reserve( nt*nz );
-
-    Double_t xyzStart[3];
-    Double_t xyzEnd[3];
-
-    for (int it=0; it<=nt; it++) {
-
-      float tmid = startt + it*tstep;
-      float t1 = tmid-0.5*dtick;
-      float t2 = tmid+0.5*dtick;
-      int r1 = meta.row( t1 );
-      int r2 = meta.row( t2 );
-
-      if ( r2-r1!=_box_pixel_height ) {
-	r1 = r2-_box_pixel_height;
-      }
       
-      if ( r1<0 ) {
-	r1 = 0;
-	r2 = r1 + _box_pixel_height;
-      }
-      if ( r2>= (int)meta.rows() ) {
-	r2 = (int)meta.rows()-1;
-	r1 = r2-meta.rows();
-      }
+    if ( !_randomize_crops ) {
+      // crop in lattice pattern through detector
+      LARCV_DEBUG() << "Lattice Crop" << std::endl;
+      LARCV_DEBUG() << "nt,nz: " << nt  << " " << nz << std::endl;
+      LARCV_DEBUG() << "start (z,t): (" << zstart << ", " << startt << ")" << std::endl;
       
-      for (int iz=0; iz<=nz; iz++) {
-
-	int zwire = zstart + iz*zstep;
-	int zcol0 = zwire - zwidth/2;
-	int zcol1 = zwire + zwidth/2;
-
-	if ( zcol1>3455 )
-	  zcol1 = 3455;
-
-	// determine range for u-plane
-	geo->WireEndPoints( 2, zcol0, xyzStart, xyzEnd );
-	float z0 = xyzStart[2];
-	Double_t zupt0[3] = { 0,+117.5, z0 };
-	int ucol0 = geo->NearestWire( zupt0, 0 );
-
-	geo->WireEndPoints( 2, zcol1, xyzStart, xyzEnd );
-	float z1 = xyzStart[2];
-	Double_t zupt1[3] = { 0,-117.5, z1-0.1 };
-	int ucol1 = 0;
-	if ( iz!=nz )
-	  ucol1 = geo->NearestWire( zupt1, 0 );
-	else
-	  ucol1 = 2399;
-
-	if ( ucol0>ucol1 ) {
-	  // this happens on the detector edge
-	  ucol0 = 0;
+      lattice.reserve( nt*nz );
+      
+      for (int it=0; it<=nt; it++) {
+	
+	float tmid = startt + it*tstep;
+	
+	for (int iz=0; iz<=nz; iz++) {
+	  
+	  int zwire = zstart + iz*zstep;
+	  
+	  std::vector<int> crop_coords = defineImageBoundsFromPosZT( zwire, tmid, zwidth, dtick,
+								     _box_pixel_width, _box_pixel_height,
+								     img_v );
+	  lattice.emplace_back( std::move(crop_coords) );
+	  
 	}
-	
-	// must fit in _box_pixe_width
-	int ddu = ucol1-ucol0;
-	int rdu = _box_pixel_width%ddu;
-	int ndu = ddu/_box_pixel_width;
-	if ( rdu!= 0) {
-	  if ( ndu==0 ) {
-	    // short, extend the end (or lower the start if near end)
-	    if ( ucol1+rdu<2400 )
-	      ucol1+=rdu;
-	    else
-	      ucol0-=rdu;
-	  }
-	  else {
-	    rdu = ddu%_box_pixel_width;
-	    // long, reduce the end
-	    ucol1 -= rdu;
-	  }
-	}
-
-	// determine v-plane
-	geo->WireEndPoints( 2, zcol0, xyzStart, xyzEnd );
-	z0 = xyzStart[2];
-	Double_t zvpt0[3] = { 0,-115.5, z0 };
-	int vcol0 = geo->NearestWire( zvpt0, 1 );
-	
-	geo->WireEndPoints( 2, zcol1, xyzStart, xyzEnd );
-	z1 = xyzStart[2];
-	Double_t zvpt1[3] = { 0,+117.5, z1-0.1 };
-	int vcol1 = 0;
-	if ( iz!=nz )
-	  vcol1 = geo->NearestWire( zvpt1, 1 );
-	else
-	  vcol1 = 2399;
-	int ddv = vcol1-vcol0;
-	int rdv = _box_pixel_width%ddv;
-	int ndv = ddv/_box_pixel_width;
-	if ( rdv!= 0) {
-	  if ( ndv==0 ) {
-	    // short, extend the end (or lower the start if near end)
-	    if ( vcol1+rdv<2400 )
-	      vcol1+=rdv;
-	    else
-	      vcol0-=rdv;
-	  }
-	  else {
-	    // long, redvce the end
-	    rdv = ddv%_box_pixel_width;
-	    vcol1 -= rdv;
-	  }
-	}
-	
-	
-	std::cout << "Crop: z=[" << z0 << "," << z1 << "] zcol=[" << zcol0 << "," << zcol1 << "] "
-		  << "u=[" << ucol0 << "," << ucol1 << "] du=" << ucol1-ucol0 << " "
-		  << "v=[" << vcol0 << "," << vcol1 << "] dv=" << vcol1-vcol0 << " "
-		  << "t=[" << r1 << "," << r2 << "]"
-		  << std::endl;
-
-	std::vector<int> crop_coords(8);
-	crop_coords[0] = zcol0;
-	crop_coords[1] = zcol1;
-	crop_coords[2] = ucol0;
-	crop_coords[3] = ucol1;
-	crop_coords[4] = vcol0;
-	crop_coords[5] = vcol1;
-	crop_coords[6] = r1;
-	crop_coords[7] = r2;
-	
-	lattice.emplace_back( std::move(crop_coords) );
-
       }
+      std::cout << "Num lattice points: " << lattice.size() << std::endl;
     }
-    std::cout << "Num lattice points: " << lattice.size() << std::endl;
+    else {
+      // random cropping
+      TRandom3 rand(time(NULL));
+      for (int iatt=0; iatt<_randomize_attempts; iatt++) {
+	
+	float z = zstart + zspan*rand.Uniform();
+	float t = startt + dtickimg*rand.Uniform();
+
+	std::vector<int> crop_coords = defineImageBoundsFromPosZT( z, t, zwidth, dtick,
+								   _box_pixel_width, _box_pixel_height,
+								   img_v );
+	lattice.emplace_back( std::move(crop_coords) );
+      }
+      std::cout << "Num of randomized cropping points: " << lattice.size() << std::endl;
+    }
 
     // debug
     std::vector<larcv::Image2D> coverage_v;
@@ -281,9 +193,10 @@ namespace larcv {
     // create bounding boxes around lattice points
     for ( auto const& cropcoords : lattice ) {
 
-      if ( _max_images>0 && _max_images<=(int)output_imgs->image2d_array().size() )
+      if ( _max_images>0 && _max_images<=(int)(output_imgs->image2d_array().size()/3) )
 	break;
       
+      std::cout << "imgs filled: " << output_imgs->image2d_array().size()/3 << std::endl;
       
       int y1 = cropcoords[0];
       int y2 = cropcoords[1];
@@ -296,13 +209,16 @@ namespace larcv {
 
       std::vector<larcv::BBox2D> bbox_vec = defineBoundingBoxFromCropCoords( img_v, _box_pixel_width, _box_pixel_height,
 									     t1, t2, u1, u2, v1, v2, y1, y2 );
-      
+
+      bool filledimg = false;
       if ( _enable_img_crop ) {
-	cropUsingBBox2D( bbox_vec, img_v, y1, y2, _complete_y_crop, *output_imgs );
+	filledimg = cropUsingBBox2D( bbox_vec, img_v, y1, y2, _complete_y_crop, _randomize_minfracpix, *output_imgs );
       }
 
-      for ( auto &bbox : bbox_vec ) {
-	output_bbox->emplace_back( std::move(bbox) );
+      if ( filledimg ) {
+	for ( auto &bbox : bbox_vec ) {
+	  output_bbox->emplace_back( std::move(bbox) );
+	}
       }
       
     }///end of loop over lattice
@@ -413,7 +329,7 @@ namespace larcv {
 			      (maxt-mint)/ymeta.pixel_height(),
 			      ycmax-ycmin,
 			      ymeta.id() );
-    larcv::BBox2D bbox_y( miny, miny, maxy, maxt, ymeta.id() );
+    larcv::BBox2D bbox_y( miny, mint, maxy, maxt, ymeta.id() );
 
     bbox_vec.emplace_back( std::move(bbox_u) );
     bbox_vec.emplace_back( std::move(bbox_v) );
@@ -423,15 +339,21 @@ namespace larcv {
     
   }
 
-  void UBSplitDetector::cropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
+  bool UBSplitDetector::cropUsingBBox2D( const std::vector<larcv::BBox2D>& bbox_vec,
 					 const std::vector<larcv::Image2D>& img_v,
 					 const int y1, const int y2, bool fill_y_image,
+					 const float minpixfrac,
 					 larcv::EventImage2D& output_imgs ) {
     // inputs
     // ------
     // bbox_v, vector of bounding boxes for (u,v,y)
     // img_v, source adc images
     // y1, y2: range of y-wires fully covered by U,V
+    // fill_y_image: if true, we fill the entire cropped y-image.
+    //               else we only fill the region of y-wires that
+    //               are entirely covered by the u,v cropped images
+    // minpixfrac: if value is >0, we enforce a minimum value on the
+    //               number of pixels occupied in the Y-image
     //
     // outputs
     // --------
@@ -446,28 +368,23 @@ namespace larcv {
     // y-plane meta
     const larcv::ImageMeta& ymeta = img_v[2].meta();
     
-    // U,V are cropped using image2d routines
     // Y copies range of y-wires into center of output crop
-
-    larcv::Image2D crop_up = img_v[0].crop( bbox_u );
-    output_imgs.emplace( std::move(crop_up) );
-    
-    larcv::Image2D crop_vp = img_v[1].crop( bbox_v );
-    output_imgs.emplace( std::move(crop_vp) );
-
     
     larcv::ImageMeta crop_yp( bbox_y.min_x(), bbox_y.min_y(), bbox_y.max_x(), bbox_y.max_y(),
 			      (int)(bbox_y.height()/ymeta.pixel_height()),
 			      (int)(bbox_y.width()/ymeta.pixel_width()),
 			      ymeta.id() );
 
+    std::vector<larcv::Image2D> y_img_holder;
+    
     if ( fill_y_image ) {
       // we fill y-columns will all values
       larcv::Image2D crop_yimg = img_v[2].crop( bbox_y );
-      output_imgs.emplace( std::move(crop_yimg) );
+      y_img_holder.emplace_back( std::move(crop_yimg) );
     }
     else {
       // we only fill y-wires that are fully covered by U,V wires
+      std::cout << "center-filled y plane crop" << std::endl;
       int t1 = ymeta.row( bbox_y.min_y() );
       
       larcv::Image2D ytarget( crop_yp );
@@ -481,12 +398,176 @@ namespace larcv {
 	  ytarget.set_pixel( r, c, img_v[2].pixel( t1+r, cropc ) );
 	}
       }
-      output_imgs.emplace( std::move( ytarget ) );
+      y_img_holder.emplace_back( std::move( ytarget ) );    
     }
 
-    return;
+    float frac_occupied = 0.;
+    bool saveimg = true;
+
+    if ( minpixfrac>0 ) {
+      const larcv::Image2D& yimg = y_img_holder[0];
+      for (int row=0; row<(int)yimg.meta().rows(); row++) {
+	for (int col=0; col<(int)yimg.meta().cols(); col++) {
+	  if ( yimg.pixel(row,col)>10.0 )
+	    frac_occupied+=1.0;
+	}
+      }
+      frac_occupied /= float(yimg.meta().rows()*yimg.meta().cols());
+
+      std::cout << "frac occupied: " << frac_occupied << std::endl;
+      
+      if ( frac_occupied<minpixfrac )
+	saveimg = false;
+    }
+
+    
+    if ( !saveimg )
+      return false;
+    
+
+    larcv::Image2D crop_up = img_v[0].crop( bbox_u );
+    output_imgs.emplace( std::move(crop_up) );
+    
+    larcv::Image2D crop_vp = img_v[1].crop( bbox_v );
+    output_imgs.emplace( std::move(crop_vp) );
+
+    output_imgs.emplace( std::move(y_img_holder[0]) );
+    
+    return true;
   }
-     
+
+  std::vector<int> UBSplitDetector::defineImageBoundsFromPosZT( const float zwire, const float tmid, const float zwidth, const float dtick,
+								const int box_pixel_width, const int box_pixel_height,
+								const std::vector<larcv::Image2D>& img_v ) {
+    const larcv::ImageMeta& meta = img_v.front().meta();
+    const larutil::Geometry* geo       = larutil::Geometry::GetME();
+    
+    float t1 = tmid-0.5*dtick;
+    float t2 = tmid+0.5*dtick;
+    int r1 = meta.row( t1 );
+    int r2 = meta.row( t2 );
+
+    // fix tick bounds
+    if ( r2-r1!=box_pixel_height ) {
+      r1 = r2-box_pixel_height;
+    }
+    
+    if ( r1<0 ) {
+      r1 = 0;
+      r2 = r1 + box_pixel_height;
+    }
+    if ( r2>= (int)meta.rows() ) {
+      r2 = (int)meta.rows()-1;
+      r1 = r2-meta.rows();
+    }
+
+    // set z range
+    int zcol0 = zwire - zwidth/2;
+    int zcol1 = zwire + zwidth/2;
+    
+    if ( zcol1>3455 )
+      zcol1 = 3455;
+
+    
+    // determine range for u-plane
+    Double_t xyzStart[3];
+    Double_t xyzEnd[3];
+    geo->WireEndPoints( 2, zcol0, xyzStart, xyzEnd );
+    float z0 = xyzStart[2];
+    Double_t zupt0[3] = { 0,+117.5, z0 };
+    int ucol0 = geo->NearestWire( zupt0, 0 );
+
+    geo->WireEndPoints( 2, zcol1, xyzStart, xyzEnd );
+    float z1 = xyzStart[2];
+    Double_t zupt1[3] = { 0,-117.5, z1-0.1 };
+    int ucol1 = 0;
+    try {
+      ucol1 = geo->NearestWire( zupt1, 0 );
+    }
+    catch (...) {
+      ucol1 = 2399;
+    }
+
+    if ( ucol0>ucol1 ) {
+      // this happens on the detector edge
+      ucol0 = 0;
+    }
+	
+    // must fit in _box_pixe_width
+    int ddu = ucol1-ucol0;
+    int rdu = box_pixel_width%ddu;
+    int ndu = ddu/box_pixel_width;
+    if ( rdu!= 0) {
+      if ( ndu==0 ) {
+	// short, extend the end (or lower the start if near end)
+	if ( ucol1+rdu<2400 )
+	  ucol1+=rdu;
+	else
+	  ucol0-=rdu;
+      }
+      else {
+	rdu = ddu%box_pixel_width;
+	// long, reduce the end
+	ucol1 -= rdu;
+      }
+    }
+
+    // determine v-plane
+    geo->WireEndPoints( 2, zcol0, xyzStart, xyzEnd );
+    z0 = xyzStart[2];
+    Double_t zvpt0[3] = { 0,-115.5, z0 };
+    int vcol0 = geo->NearestWire( zvpt0, 1 );
+    
+    geo->WireEndPoints( 2, zcol1, xyzStart, xyzEnd );
+    z1 = xyzStart[2];
+    Double_t zvpt1[3] = { 0,+117.5, z1-0.1 };
+    int vcol1 = 0;
+    try {
+      vcol1 = geo->NearestWire( zvpt1, 1 );
+    }
+    catch  (...) {
+      vcol1 = 2399;
+    }
+    
+    int ddv = vcol1-vcol0;
+    int rdv = box_pixel_width%ddv;
+    int ndv = ddv/box_pixel_width;
+    if ( rdv!= 0) {
+      if ( ndv==0 ) {
+	// short, extend the end (or lower the start if near end)
+	if ( vcol1+rdv<2400 )
+	  vcol1+=rdv;
+	else
+	  vcol0-=rdv;
+      }
+      else {
+	// long, redvce the end
+	rdv = ddv%box_pixel_width;
+	vcol1 -= rdv;
+      }
+    }
+    
+	
+    // LARCV_DEBUG() << "Crop: z=[" << z0 << "," << z1 << "] zcol=[" << zcol0 << "," << zcol1 << "] "
+    // 		   << "u=[" << ucol0 << "," << ucol1 << "] du=" << ucol1-ucol0 << " "
+    // 		   << "v=[" << vcol0 << "," << vcol1 << "] dv=" << vcol1-vcol0 << " "
+    // 		   << "t=[" << r1 << "," << r2 << "]"
+    // 		   << std::endl;
+
+    std::vector<int> crop_coords(8);
+    crop_coords[0] = zcol0;
+    crop_coords[1] = zcol1;
+    crop_coords[2] = ucol0;
+    crop_coords[3] = ucol1;
+    crop_coords[4] = vcol0;
+    crop_coords[5] = vcol1;
+    crop_coords[6] = r1;
+    crop_coords[7] = r2;
+	
+    return crop_coords;
+    
+  }
+
   
   void UBSplitDetector::finalize()
   {}
