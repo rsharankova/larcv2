@@ -20,7 +20,8 @@ namespace larcv {
 
   void UBCropLArFlow::configure(const PSet& cfg)
   {
-    
+
+    _verbosity_             = cfg.get<int>("Verbosity");
     _input_bbox_producer    = cfg.get<std::string>("InputBBoxProducer");
     _input_adc_producer     = cfg.get<std::string>("InputADCProducer");
     _input_cropped_producer = cfg.get<std::string>("InputCroppedADCProducer");
@@ -129,6 +130,11 @@ namespace larcv {
 				cropped_flow, cropped_visi,
 				&logger() );
 
+      // check the quality of the crop
+      if ( _check_flow ) {
+	check_cropped_images( src_plane, crop_v, _thresholds_v, cropped_flow, cropped_visi, &logger(), 0 );
+      }
+      
       ev_out_adc->emplace( std::move(crop_v) );
       ev_vis_adc->emplace( std::move(cropped_visi) );
       ev_flo_adc->emplace( std::move(cropped_flow) );
@@ -253,86 +259,91 @@ namespace larcv {
     return;
   }
 
-// void check_cropped_images( const int plane,
-// 			   const std::vector<larcv::Image2D>& cropped_adc_v,
-// 			   const std::vector<float>& thresholds,
-// 			   const std::vector<larcv::Image2D>& cropped_flow,
-// 			   const std::vector<larcv::Image2D>& cropped_visi ) {
+  void UBCropLArFlow::check_cropped_images( const int src_plane,
+					    const std::vector<larcv::Image2D>& cropped_adc_v,
+					    const std::vector<float>& thresholds,
+					    const std::vector<larcv::Image2D>& cropped_flow,
+					    const std::vector<larcv::Image2D>& cropped_visi,
+					    const larcv::logger* log, const int verbosity ) {
 
-//   // we follow the flow to the target image.
-//   // correct if
-//   //  source adc above threshold has flow value
-//   //  and ( source visi=1+target image pixel above threshold OR target image pixel below and source visi is 0 )
-
-//   const int targetplanes[3][2] = { {1,2},
-// 				   {0,2},
-// 				   {0,1} };
-  
-//   int ncorrect[2] = {0};
-//   int nwrong_flow2nothing[2] = {0};
-//   int nwrong_badvisi[2] = {0};
-//   int nwrong_nolabel[2] = {0};
-//   int nabove = 0;
-
-//   const larcv::Image2D& src_adc = cropped_adc_v[plane];
-//   const larcv::ImageMeta& meta = src_adc.meta();
-  
-//   for (int r=0; r<(int)meta.rows(); r++) {
-//     for (int c=0; c<(int)meta.cols(); c++) {
-
-//       if ( src_adc.pixel(r,c)<thresholds[plane] )
-// 	continue;
-
-//       nabove++;
-
-//       for (int i=0; i<2; i++) {
-// 	int flow = cropped_flow[i].pixel(r,c);
-// 	float visi = cropped_visi[i].pixel(r,c);
-
-// 	if ( flow<=-4000 ) {
-// 	  if ( visi<0.5)
-// 	    ncorrect[i]++;
-// 	  else
-// 	    nwrong_nolabel[i]++;
-// 	  continue;
-// 	}
+    // we follow the flow to the target image.
+    // correct if
+    //  source adc above threshold has flow value
+    //  and ( source visi=1+target image pixel above threshold OR target image pixel below and source visi is 0 )
+    
+    const int targetplanes[3][2] = { {1,2},
+				     {0,2},
+				     {0,1} };
+    
+    int ncorrect[2] = {0};
+    int nwrong_flow2nothing[2] = {0};
+    int nwrong_badvisi[2] = {0};
+    int nwrong_nolabel[2] = {0};
+    int nabove = 0;
+    
+    const larcv::Image2D& src_adc = cropped_adc_v[src_plane];
+    const larcv::ImageMeta& meta = src_adc.meta();
+    
+    for (int r=0; r<(int)meta.rows(); r++) {
+      for (int c=0; c<(int)meta.cols(); c++) {
 	
-// 	int targetc = c+flow;
+	if ( src_adc.pixel(r,c)<thresholds[src_plane] )
+	  continue;
 
-// 	//std::cout << "(" << r << "," << c << ") flow=" << flow << " targetc=" << targetc << std::endl;
+	nabove++;
+	
+      for (int i=0; i<2; i++) {
+	int flow = cropped_flow[i].pixel(r,c);
+	float visi = cropped_visi[i].pixel(r,c);
+	
+	if ( flow<=-4000 ) {
+	  if ( visi<0.5)
+	    ncorrect[i]++;
+	  else
+	    nwrong_nolabel[i]++;
+	  continue;
+	}
+	
+	int targetc = c+flow;
+	
+	//std::cout << "(" << r << "," << c << ") flow=" << flow << " targetc=" << targetc << std::endl;
+	
+	float targetadc = cropped_adc_v[ targetplanes[src_plane][i] ].pixel( r, targetc );
 
-// 	float targetadc = cropped_adc_v[ targetplanes[plane][i] ].pixel( r, targetc );
-
-// 	if ( visi>0.5 ) {
-// 	  if ( targetadc>=thresholds[ targetplanes[plane][1] ] )
-// 	    ncorrect[i]++;
-// 	  else
-// 	    nwrong_flow2nothing[i]++;
-// 	}
-// 	else {
-// 	  if ( thresholds[ targetplanes[plane][i] ]>targetadc )
-// 	    ncorrect[i]++;
-// 	  else
-// 	    nwrong_badvisi[i]++;
-// 	}
-//       }
+	if ( visi>0.5 ) {
+	  if ( targetadc>=thresholds[ targetplanes[src_plane][1] ] )
+	    ncorrect[i]++;
+	  else
+	    nwrong_flow2nothing[i]++;
+	}
+	else {
+	  if ( thresholds[ targetplanes[src_plane][i] ]>targetadc )
+	    ncorrect[i]++;
+	  else
+	    nwrong_badvisi[i]++;
+	}
+      }
       
-//     }
-//   }
+      }
+    }
 
-//   std::cout << "[plane " << plane << "] ncorrect=" << float(ncorrect[0])/float(nabove) << "," << float(ncorrect[1])/float(nabove) << '\n'
-// 	    << "  badvisi "      << float(nwrong_badvisi[0])/float(nabove) << "," << float(nwrong_badvisi[1])/float(nabove) << '\n'
-//     	    << "  flow2nothing " << float(nwrong_flow2nothing[0])/float(nabove) << "," << float(nwrong_flow2nothing[1])/float(nabove) << '\n'
-//     	    << "  nolabel " << float(nwrong_nolabel[0])/float(nabove) << "," << float(nwrong_nolabel[1])/float(nabove)
-// 	    <<  std::endl;
-  
-  
-// }
+    if ( verbosity==0 ) {
+      (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
+	<< "[source plane " << src_plane << "-> target planes (" << targetplanes[src_plane][0] << "," << targetplanes[src_plane][1] << ")] "
+	<< "(ncorrect=" << float(ncorrect[0])/float(nabove) << "," << float(ncorrect[1])/float(nabove) << ")" << std::endl;
+      (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
+	<< "  badvisi: ("      << float(nwrong_badvisi[0])/float(nabove) << "," << float(nwrong_badvisi[1])/float(nabove) << ")" << std::endl;
+      (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
+	<< "  flow2nothing: (" << float(nwrong_flow2nothing[0])/float(nabove) << "," << float(nwrong_flow2nothing[1])/float(nabove) << ")" << std::endl;
+      (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)      
+	<< "  nolabel: (" << float(nwrong_nolabel[0])/float(nabove) << "," << float(nwrong_nolabel[1])/float(nabove) << ")" << std::endl;
+    }
+  }
   
   void UBCropLArFlow::finalize()
   {
     foutIO->finalize();
   }
-
+  
 }
 #endif

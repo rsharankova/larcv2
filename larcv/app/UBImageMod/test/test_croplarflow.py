@@ -46,6 +46,7 @@ OutputCroppedADCProducer: \"adc\"
 OutputCroppedVisiProducer: \"visi\"
 OutputCroppedFlowProducer: \"flow\"
 OutputFilename: \"baka_lf.root\"
+CheckFlow: true
 """
 
 lfcfg = open("ublarflowcrop.cfg",'w')

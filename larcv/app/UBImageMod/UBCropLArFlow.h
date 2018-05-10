@@ -58,11 +58,27 @@ namespace larcv {
 					  const std::vector<float>& thresholds,
 					  std::vector<larcv::Image2D>& cropped_flow,
 					  std::vector<larcv::Image2D>& cropped_visi,
-					  const larcv::logger* log );
+					  const larcv::logger* log=NULL );
+
+    static void check_cropped_images( const int src_plane,
+				      const std::vector<larcv::Image2D>& cropped_adc_v,
+				      const std::vector<float>& thresholds,
+				      const std::vector<larcv::Image2D>& cropped_flow,
+				      const std::vector<larcv::Image2D>& cropped_visi,
+				      const larcv::logger* log=NULL, const int verbosity=2 );
     
     // ----------------------------------------------------------------------
     // we save data ourselves
+    
+  public:
+    
+    const larcv::IOManager& getOutputIOMan() const { return *foutIO; };
+    
+  protected:
+    
     larcv::IOManager* foutIO;
+
+    // ----------------------------------------------------------------------    
     
   private:
 
@@ -80,6 +96,7 @@ namespace larcv {
     std::vector<float> _thresholds_v;
     bool _check_flow;
     bool _make_check_image;
+    int _verbosity_;
     
   };
 

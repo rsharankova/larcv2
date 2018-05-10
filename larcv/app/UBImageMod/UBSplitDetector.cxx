@@ -381,7 +381,7 @@ namespace larcv {
     
     if ( fill_y_image ) {
       // we fill y-columns will all values
-      std::cout << "Y-crop: " << bbox_y.dump() << std::endl;
+      //std::cout << "Y-crop: " << bbox_y.dump() << std::endl;
       larcv::Image2D crop_yimg = img_v[2].crop( bbox_y );
       y_img_holder.emplace_back( std::move(crop_yimg) );
     }
