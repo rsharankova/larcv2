@@ -1,5 +1,7 @@
 import ROOT as rt
 from larcv import larcv
+import sys
+sys.argv.append("-b")
 
 
 superafile = "/media/hdd2/taritree/larflow/xfer/larcv_5477923_0.root"
@@ -22,7 +24,7 @@ BBoxPixelWidth: 832
 CoveredZWidth: 310
 FillCroppedYImageCompletely: true
 DebugImage: false
-MaxImages: 5
+MaxImages: 20
 RandomizeCrops: true
 MaxRandomAttempts: 50
 MinFracPixelsInCrop: 0.0001
@@ -46,7 +48,8 @@ OutputCroppedADCProducer: \"adc\"
 OutputCroppedVisiProducer: \"visi\"
 OutputCroppedFlowProducer: \"flow\"
 OutputFilename: \"baka_lf.root\"
-CheckFlow: true
+CheckFlow: false
+MakeCheckImage: false
 """
 
 lfcfg = open("ublarflowcrop.cfg",'w')

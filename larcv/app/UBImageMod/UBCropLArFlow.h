@@ -65,6 +65,7 @@ namespace larcv {
 				      const std::vector<float>& thresholds,
 				      const std::vector<larcv::Image2D>& cropped_flow,
 				      const std::vector<larcv::Image2D>& cropped_visi,
+				      const bool visualize_flow,				      
 				      const larcv::logger* log=NULL, const int verbosity=2 );
     
     // ----------------------------------------------------------------------
@@ -97,7 +98,9 @@ namespace larcv {
     bool _check_flow;
     bool _make_check_image;
     int _verbosity_;
-    
+
+
+    static int _check_img_counter;
   };
 
   /**
