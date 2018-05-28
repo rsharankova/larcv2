@@ -50,7 +50,7 @@ OutputCroppedFlowProducer: \"flow\"
 OutputFilename: \"baka_lf.root\"
 CheckFlow: true
 MakeCheckImage: true
-DoMaxPool: false
+DoMaxPool: true
 RowDownsampleFactor: 2
 ColDownsampleFactor: 2
 MaxImages: 3

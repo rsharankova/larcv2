@@ -461,7 +461,7 @@ namespace larcv {
 	  }
 	  else {
 	    // should be invisible
-	    if ( thresholds[ trgt_img ]>targetadc ) {
+	    if ( targetadc<thresholds[ trgt_img ] ) {
 	      ncorrect[i]++;
 	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, 2.0 );
 	    }
@@ -477,20 +477,22 @@ namespace larcv {
 
     for (int i=0; i<2; i++) {
       //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "
-		<< "[source plane " << src_plane << "-> target plane " << targetplanes[src_plane][i]  << "] "
-		<< "  ncorrect=" << float(ncorrect[i])/float(nabove[i]) << std::endl;
+      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      	
+		<< "[source plane " << src_plane << "-> target plane " << targetplanes[src_plane][i]  << "] \n"
+		<< "  nabove=" << nabove[i] << "\n"	
+		<< "  ncorrect=" << float(ncorrect[i])/float(nabove[i])
+		<< std::endl;
       //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "
+      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "
 		<< "  badvisi: "      << float(nwrong_badvisi[i])/float(nabove[i]) << std::endl;
       //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "      
+      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
 		<< "  flow2nothing: " << float(nwrong_flow2nothing[i])/float(nabove[i]) << std::endl;
       //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)      
-      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "      
+      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
 		<< "  flow2OB: " << float(nwrong_flowob[i])/float(nabove[i]) << std::endl;
       //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "      
+      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
 		<< "  nolabel: " << float(nwrong_nolabel[i])/float(nabove[i]) << std::endl;
     }
     
@@ -588,7 +590,7 @@ namespace larcv {
 				   meta_target.rows()/row_downsample_factor, meta_target.cols()/col_downsample_factor,
 				   meta_target.id(), meta_target.unit() );
     larcv::Image2D out_target( out_meta_target );
-    out_target.paint(0.0);
+    out_target.paint(-1.0);
     
     // flow ADC
     const larcv::ImageMeta& meta_flow = flow.meta();
@@ -611,6 +613,7 @@ namespace larcv {
     //  and visibility are chosen.
     // the flow is corrected to be on the scale of the downsampled images
     const larcv::ImageMeta& out_src_meta = out_src.meta();
+    const larcv::ImageMeta& out_tar_meta = out_target.meta();        
     for ( int ro=0; ro<(int)out_src_meta.rows(); ro++) {
       for (int co=0; co<(int)out_src_meta.cols(); co++) {
 
@@ -669,21 +672,44 @@ namespace larcv {
 	}
 
 	// now we have to adjust the flow to get to the correct target pixel
-
-	int oflow = co + int(max_flow/col_downsample_factor);
-	if ( oflow>=(int)out_src_meta.cols() || oflow<0 ) {
+	int orig_out_col = max_col + max_flow;
+	int outcol       = orig_out_col/col_downsample_factor;
+	int oflow        = outcol-co;
+	if ( outcol>=(int)out_tar_meta.cols() || outcol<0 ) {
 	  std::stringstream ss;
-	  ss << __PRETTY_FUNCTION__ << "." << __LINE__ << ": adjusted flow " << oflow << " does not fall within max-pooled image. "
-	     << " original flow=" << max_flow << std::endl;
+	  ss << __PRETTY_FUNCTION__ << "." << __LINE__ << ": adjusted flow " << co << "->" << outcol << " does not fall within max-pooled image. "
+	     << " original flow=" << max_flow << " dsflow=" << oflow << "\n"
+	     << out_tar_meta.dump()
+	     << std::endl;
 	  throw std::runtime_error( ss.str() );
 	}
 
+	// valid flow
+	// whats the max adc value in target region
+	bool targetabove = false;
+	float target_maxadc = 0;
+	for ( int tci=outcol*col_downsample_factor; tci<(outcol+1)*col_downsample_factor; tci++) {
+	  for (int tri=ro*row_downsample_factor; tri<(ro+1)*row_downsample_factor; tri++) {
+	    float target_flow_adc = target_adc.pixel( tri, tci );
+	    if ( target_flow_adc>thresholds[out_tar_meta.id()] ) {
+	      targetabove = true;
+	      target_maxadc = target_flow_adc;
+	    }
+	  }
+	}
+	
 	// checks out. fill the outputs
 	try {
 	  out_src.set_pixel( ro, co, src_adc.pixel( max_row, max_col ) );
-	  out_visi.set_pixel( ro, co, visi.pixel( max_row, max_col ) );
-	  out_flow.set_pixel( ro, co, flow.pixel( max_row, max_col ) );		
-	  out_target.set_pixel( ro, oflow, target_adc.pixel( max_row, int(max_col+max_flow) ) );
+	  out_flow.set_pixel( ro, co, oflow );	  
+	  if ( targetabove ) {
+	    out_visi.set_pixel( ro, co, 1.0 );
+	    out_target.set_pixel( ro, outcol, target_maxadc );
+	  }
+	  else {
+	    out_visi.set_pixel( ro, co, 0.0 );
+	    out_target.set_pixel( ro, outcol, 0.0 );
+	  }
 	}
 	catch ( std::exception& e ) {
 	  std::stringstream ss;
@@ -697,10 +723,9 @@ namespace larcv {
 
     // the target image will be incomplete for pixels where source did not project into it
     // so we fill the remainder here
-    const larcv::ImageMeta& out_tar_meta = out_target.meta();    
     for ( int ro=0; ro<(int)out_tar_meta.rows(); ro++) {
       for (int co=0; co<(int)out_tar_meta.cols(); co++) {
-	if ( out_target.pixel(ro,co)>thresholds[ (int)(meta_target.id()) ] )
+	if ( out_target.pixel(ro,co)>=0.0 )
 	  continue; // because already filled
 	
 	int ri_start = ro*row_downsample_factor;
