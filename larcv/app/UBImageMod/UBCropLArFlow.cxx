@@ -153,7 +153,7 @@ namespace larcv {
       
       // check the quality of the crop
       if ( _check_flow ) {
-	check_cropped_images( src_plane, crop_v, _thresholds_v, cropped_flow, cropped_visi, &(logger()), 0 );
+	check_cropped_images( src_plane, crop_v, _thresholds_v, cropped_flow, cropped_visi, _make_check_image, &(logger()), 0 );
 	UBCropLArFlow::_check_img_counter++;
       }
       
@@ -410,11 +410,13 @@ namespace larcv {
 	  if ( flow<=UBCropLArFlow::_NO_FLOW_VALUE_ ) {
 	    if ( visi<0.5) {
 	      ncorrect[i]++;
-	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, 1.0 );
+	      if ( visualize_flow )
+		hcheck_vismatch[i]->SetBinContent( c+1, r+1, 1.0 );
 	    }
 	    else {
 	      nwrong_nolabel[i]++;
-	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, -1.0 );
+	      if ( visualize_flow )	      
+		hcheck_vismatch[i]->SetBinContent( c+1, r+1, -1.0 );
 	    }
 	    continue;
 	  }
@@ -439,7 +441,8 @@ namespace larcv {
 	  
 	  if (!goodtarget) {
 	    nwrong_flowob[i]++;
-	    hcheck_vismatch[i]->SetBinContent( c+1, r+1, -4.0 );
+	    if ( visualize_flow )	    
+	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, -4.0 );
 	    continue;
 	  }
 	  
@@ -451,11 +454,13 @@ namespace larcv {
 	    // should be vis
 	    if ( targetadc>=thresholds[ trgt_img ] ) {
 	      ncorrect[i]++;
-	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, 3.0 );
+	      if ( visualize_flow )	      
+		hcheck_vismatch[i]->SetBinContent( c+1, r+1, 3.0 );
 	    }
 	    else {
 	      nwrong_flow2nothing[i]++;
-	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, -3.0 );	    
+	      if ( visualize_flow )
+		hcheck_vismatch[i]->SetBinContent( c+1, r+1, -3.0 );	    
 	    }
 	    
 	  }
@@ -463,11 +468,13 @@ namespace larcv {
 	    // should be invisible
 	    if ( targetadc<thresholds[ trgt_img ] ) {
 	      ncorrect[i]++;
-	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, 2.0 );
+	      if ( visualize_flow )
+		hcheck_vismatch[i]->SetBinContent( c+1, r+1, 2.0 );
 	    }
 	    else {
 	      nwrong_badvisi[i]++;
-	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, -2.0 );	    	    
+	      if ( visualize_flow )
+		hcheck_vismatch[i]->SetBinContent( c+1, r+1, -2.0 );	    	    
 	    }
 	  }
 	}
@@ -475,27 +482,29 @@ namespace larcv {
       }
     }
 
-    for (int i=0; i<2; i++) {
-      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      	
-		<< "[source plane " << src_plane << "-> target plane " << targetplanes[src_plane][i]  << "] \n"
-		<< "  nabove=" << nabove[i] << "\n"	
-		<< "  ncorrect=" << float(ncorrect[i])/float(nabove[i])
-		<< std::endl;
-      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "
-		<< "  badvisi: "      << float(nwrong_badvisi[i])/float(nabove[i]) << std::endl;
-      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
-		<< "  flow2nothing: " << float(nwrong_flow2nothing[i])/float(nabove[i]) << std::endl;
-      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)      
-      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
-		<< "  flow2OB: " << float(nwrong_flowob[i])/float(nabove[i]) << std::endl;
-      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
-      std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
-		<< "  nolabel: " << float(nwrong_nolabel[i])/float(nabove[i]) << std::endl;
+    if ( log!=NULL ) {
+      for (int i=0; i<2; i++) {
+	(*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
+	  //std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      	
+	  << "[source plane " << src_plane << "-> target plane " << targetplanes[src_plane][i]  << "]"
+	  << "  nabove=" << nabove[i] << ", "
+	  << "  ncorrect=" << float(ncorrect[i])/float(nabove[i])
+	  << std::endl;
+	(*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
+	  //std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "
+	  << "  badvisi: "      << float(nwrong_badvisi[i])/float(nabove[i]) << std::endl;
+	(*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
+	  //std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
+	  << "  flow2nothing: " << float(nwrong_flow2nothing[i])/float(nabove[i]) << std::endl;
+	(*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)      
+	  //std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
+	  << "  flow2OB: " << float(nwrong_flowob[i])/float(nabove[i]) << std::endl;
+	(*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
+	  //std::cout << __FILE__ << "." << __LINE__ << "::" << __FUNCTION__ << ": "      
+	  << "  nolabel: " << float(nwrong_nolabel[i])/float(nabove[i]) << std::endl;
+      }
     }
-    
+      
     // dump canvas and clean up
     if ( visualize_flow ) {
 

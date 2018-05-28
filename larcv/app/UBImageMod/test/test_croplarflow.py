@@ -49,11 +49,11 @@ OutputCroppedVisiProducer: \"visi\"
 OutputCroppedFlowProducer: \"flow\"
 OutputFilename: \"baka_lf.root\"
 CheckFlow: true
-MakeCheckImage: true
+MakeCheckImage: false
 DoMaxPool: true
 RowDownsampleFactor: 2
 ColDownsampleFactor: 2
-MaxImages: 3
+MaxImages: -1
 """
 
 lfcfg = open("ublarflowcrop.cfg",'w')
