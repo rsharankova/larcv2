@@ -181,7 +181,7 @@ namespace larcv {
 								   img_v );
 	lattice.emplace_back( std::move(crop_coords) );
       }
-      std::cout << "Num of randomized cropping points: " << lattice.size() << std::endl;
+      //std::cout << "Num of randomized cropping points generated: " << lattice.size() << std::endl;
     }
 
     // debug
@@ -195,6 +195,8 @@ namespace larcv {
     }
     
     // create bounding boxes around lattice points
+    int nfilled = 0;
+    int nrejected = 0;
     for ( auto const& cropcoords : lattice ) {
 
       if ( _max_images>0 && _max_images<=(int)(output_imgs->image2d_array().size()/3) )
@@ -218,15 +220,21 @@ namespace larcv {
       }
 
       if ( filledimg ) {
+	nfilled ++;
 	for ( auto &bbox : bbox_vec ) {
 	  output_bbox->emplace_back( std::move(bbox) );
 	}
+      }
+      else {
+	nrejected ++;
       }
       
     }///end of loop over lattice
 
     LARCV_DEBUG() << "Number of cropped images: " << output_imgs->image2d_array().size() << std::endl;
     LARCV_DEBUG() << "Number of cropped images per plane: " << output_imgs->image2d_array().size()/3 << std::endl;
+    //LARCV_INFO()  << "BBoxes gen'ed=" << lattice.size() << " filled=" << nfilled << " rejected=" << nrejected << std::endl;
+    std::cout  << "BBoxes gen'ed=" << lattice.size() << " filled=" << nfilled << " rejected=" << nrejected << std::endl;    
 
     // if ( _debug_img ) {
     //   auto outev_coverage = (larcv::EventImage2D*)(mgr.get_data("image2d", "coverage"));

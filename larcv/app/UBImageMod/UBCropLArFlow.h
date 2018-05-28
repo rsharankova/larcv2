@@ -60,14 +60,14 @@ namespace larcv {
 					  std::vector<larcv::Image2D>& cropped_flow,
 					  std::vector<larcv::Image2D>& cropped_visi,
 					  const larcv::logger* log=NULL );
-
-    static void check_cropped_images( const int src_plane,
-				      const std::vector<larcv::Image2D>& cropped_adc_v,
-				      const std::vector<float>& thresholds,
-				      const std::vector<larcv::Image2D>& cropped_flow,
-				      const std::vector<larcv::Image2D>& cropped_visi,
-				      const bool visualize_flow,				      
-				      const larcv::logger* log=NULL, const int verbosity=2 );
+    
+    static std::vector<float> check_cropped_images( const int src_plane,
+						    const std::vector<larcv::Image2D>& cropped_adc_v,
+						    const std::vector<float>& thresholds,
+						    const std::vector<larcv::Image2D>& cropped_flow,
+						    const std::vector<larcv::Image2D>& cropped_visi,
+						    const bool visualize_flow,				      
+						    const larcv::logger* log=NULL, const int verbosity=2 );
 
     static void maxPool( const int row_downsample_factor, const int col_downsample_factor,
 			 const larcv::Image2D& src_adc, const larcv::Image2D& target_adc,
@@ -101,6 +101,7 @@ namespace larcv {
     std::string _output_adc_producer;
     std::string _output_vis_producer;
     std::string _output_flo_producer;
+    std::string _output_meta_producer;    
     std::string _output_filename;
     int _max_images;
     std::vector<float> _thresholds_v;

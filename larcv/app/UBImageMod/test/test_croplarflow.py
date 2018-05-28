@@ -27,7 +27,7 @@ DebugImage: false
 MaxImages: 20
 RandomizeCrops: true
 MaxRandomAttempts: 50
-MinFracPixelsInCrop: 0.0001
+MinFracPixelsInCrop: 0.001
 """
 
 fcfg = open("ubsplit.cfg",'w')
@@ -47,13 +47,14 @@ InputFlowProducer: \"pixflow\"
 OutputCroppedADCProducer: \"adc\"
 OutputCroppedVisiProducer: \"visi\"
 OutputCroppedFlowProducer: \"flow\"
+OutputCroppedMetaProducer: \"flowmeta\"
 OutputFilename: \"baka_lf.root\"
 CheckFlow: true
-MakeCheckImage: false
+MakeCheckImage: true
 DoMaxPool: true
 RowDownsampleFactor: 2
 ColDownsampleFactor: 2
-MaxImages: -1
+MaxImages: 3
 """
 
 lfcfg = open("ublarflowcrop.cfg",'w')
