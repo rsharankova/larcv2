@@ -46,7 +46,7 @@ namespace larcv {
     _do_maxpool             = cfg.get<bool>("DoMaxPool",false);
     if (_do_maxpool) {
       _row_downsample_factor  = cfg.get<int>("RowDownsampleFactor");
-      _col_downsample_factor  = cfg.get<int>("ColDownSampleFactor");
+      _col_downsample_factor  = cfg.get<int>("ColDownsampleFactor");
     }
     else {
       _row_downsample_factor = -1;
@@ -153,7 +153,7 @@ namespace larcv {
       
       // check the quality of the crop
       if ( _check_flow ) {
-	check_cropped_images( src_plane, crop_v, _thresholds_v, cropped_flow, cropped_visi, &logger(), 0 );
+	check_cropped_images( src_plane, crop_v, _thresholds_v, cropped_flow, cropped_visi, &(logger()), 0 );
 	UBCropLArFlow::_check_img_counter++;
       }
       
@@ -163,6 +163,9 @@ namespace larcv {
       
       foutIO->set_id( run, subrun, 100*event+icrop );
       foutIO->save_entry();
+
+      if ( _max_images>0 && icrop+1>=_max_images )
+	break;
     }
     
     return true;
@@ -198,44 +201,45 @@ namespace larcv {
     // output
     // ------
     // croppedadc_v: if maxpool, then will modify croppedadc_v to maxpool
-    // cropped_flow: cropped lar flow images
-    // cropped_visi: cropped visibility images
+    // cropped_flow: cropped lar flow images. one for each target plane (tot 2)
+    // cropped_visi: cropped visibility images. one for each target plane (tot 2)
     //
     // misc
     // ----
     // log: pointer to logger of calling processor
 
-    if ( cropped_flow.size()!=croppedadc_v.size() ) {
-      cropped_flow.clear();
-      for ( auto const& adc : croppedadc_v ) {
-	larcv::Image2D flo( adc.meta() );
-	flo.paint(0.0);
-	cropped_flow.emplace_back( std::move(flo) );
-      }
-    }
-    if ( cropped_visi.size()!=croppedadc_v.size() ) {
-      cropped_visi.clear();
-      for ( auto const& adc : croppedadc_v ) {
-	larcv::Image2D visi( adc.meta() );
-	visi.paint(0.0);
-	cropped_visi.emplace_back( std::move(visi) );
-      }
-    }
-    
-
+    // target planes given source plane
     const int targetplanes[3][2] = { {1,2},
 				     {0,2},
 				     {0,1} };
+    // index of source flow and visibility image in srcflow and srcvisi, respectively
     const int targetindex[3][2] = { {0,1},
 				    {2,3},
 				    {4,5} };
 
+    // get source adc and target image/meta
     const larcv::Image2D& adcimg = croppedadc_v[src_plane];
     const larcv::ImageMeta& meta = adcimg.meta();
 
     const larcv::ImageMeta* target_meta[2];
     target_meta[0] = &croppedadc_v[ targetplanes[src_plane][0] ].meta();
     target_meta[1] = &croppedadc_v[ targetplanes[src_plane][1] ].meta();
+
+    // make output flow/vis images
+    // make two per source image
+    cropped_flow.clear();
+    cropped_visi.clear();
+
+    // the meta for these are the same as the source image
+    for (int i=0; i<2; i++) {
+      larcv::Image2D flo( meta );
+      flo.paint(0.0);
+      cropped_flow.emplace_back( std::move(flo) );
+      
+      larcv::Image2D visi( meta );
+      visi.paint(0.0);
+      cropped_visi.emplace_back( std::move(visi) );
+    }
 
     // if we perform maxpooling, we will need holders for maxpooled images
     std::vector<larcv::Image2D> maxpooled_source;
@@ -253,6 +257,8 @@ namespace larcv {
       const larcv::Image2D& target_adc = croppedadc_v[trgt_pl];
       const larcv::Image2D& source_vis = srcvisi[trgt_idx];
       const larcv::Image2D& source_flo = srcflow[trgt_idx];
+      larcv::Image2D& out_vis = cropped_visi[i];
+      larcv::Image2D& out_flo = cropped_flow[i];
 
       // loop over rows and cols
       for (int r=0; r<(int)meta.rows(); r++) {
@@ -273,8 +279,8 @@ namespace larcv {
 	  float target_wire = (wire + flow);
 	  if ( target_wire<target_meta[i]->min_x() || target_wire>=target_meta[i]->max_x() ) {
 	    // outside the target cropped image
-	    cropped_flow[i].set_pixel( r, c, UBCropLArFlow::_NO_FLOW_VALUE_ );
-	    cropped_visi[i].set_pixel( r, c, 0.0 );
+	    out_flo.set_pixel( r, c, UBCropLArFlow::_NO_FLOW_VALUE_ );
+	    out_vis.set_pixel( r, c, 0.0 );
 	    // this shouldn't happen unless a mistake?
 	  }
 	  else {
@@ -284,39 +290,40 @@ namespace larcv {
 	    float target_adc = croppedadc_v[ targetplanes[src_plane][i] ].pixel( r, target_col );
 									
 	    float target_flow = target_col - c;
-	    cropped_flow[i].set_pixel( r, c, target_flow );
-	    cropped_visi[i].set_pixel( r, c, visi );
+	    out_flo.set_pixel( r, c, target_flow );
+	    out_vis.set_pixel( r, c, visi );
 
 	    if ( target_adc<thresholds[ targetplanes[src_plane][i] ] )
-	      cropped_visi[i].set_pixel( r, c, 0.0 );
+	      out_vis.set_pixel( r, c, 0.0 );
 
 	  }
 
-	  // max pool, if desired
-	  if ( do_maxpool && (row_ds_factor>1 || col_ds_factor>1) ) {
-	    // allocate empty images
-	    larcv::Image2D ds_src_adc;
-	    larcv::Image2D ds_target_adc;
-	    larcv::Image2D ds_flow;
-	    larcv::Image2D ds_visi;
-	    maxPool( row_ds_factor, col_ds_factor,
-		     adcimg, target_adc, cropped_flow[i], cropped_visi[i],
-		     thresholds,
-		     ds_src_adc, ds_target_adc, ds_flow, ds_visi );
-	    // store source maxpool
-	    maxpooled_source.emplace_back(std::move(ds_src_adc));
-	    // store target_maxpool
-	    maxpooled_target.emplace_back(std::move(ds_target_adc));
-	    
-	    // swap the flow and visi
-	    std::swap( cropped_flow[i], ds_flow );
-	    std::swap( cropped_visi[i], ds_visi );
-	  }
-	  
-	}// end of loop over target images
+	}//end of loop over cols
+      }//end of loop over rows
       
-      }//end of loop over cols
-    }//end of loop over rows
+      // max pool, if desired
+      if ( do_maxpool && (row_ds_factor>1 || col_ds_factor>1) ) {
+	// allocate empty images
+	larcv::Image2D ds_src_adc;
+	larcv::Image2D ds_target_adc;
+	larcv::Image2D ds_flow;
+	larcv::Image2D ds_visi;
+	maxPool( row_ds_factor, col_ds_factor,
+		 adcimg, target_adc, out_flo, out_vis,
+		 thresholds,
+		 ds_src_adc, ds_target_adc, ds_flow, ds_visi );
+	// store source maxpool
+	maxpooled_source.emplace_back(std::move(ds_src_adc));
+	// store target_maxpool
+	maxpooled_target.emplace_back(std::move(ds_target_adc));
+	
+	// swap the flow and visi
+	std::swap( out_flo, ds_flow );
+	std::swap( out_vis, ds_visi );
+      }
+      
+    }// end of loop over target images
+      
 
     if (do_maxpool) {
       // swap out downsampled adc images
@@ -349,9 +356,10 @@ namespace larcv {
     
     int ncorrect[2] = {0};
     int nwrong_flow2nothing[2] = {0};
+    int nwrong_flowob[2] = {0};
     int nwrong_badvisi[2] = {0};
     int nwrong_nolabel[2] = {0};
-    int nabove = 0;
+    int nabove[2] = {0};
     
     const larcv::Image2D& src_adc = cropped_adc_v[src_plane];
     const larcv::ImageMeta& meta = src_adc.meta();
@@ -362,11 +370,15 @@ namespace larcv {
       // we follow the flow and mark values in the target coordinate system
       std::stringstream ss1;
       ss1 << "hcheck_" << src_plane << "to" << targetplanes[src_plane][0] << "_" << _check_img_counter;
-      hcheck_flow[0] = new TH2D( ss1.str().c_str(), ss1.str().c_str(), meta.cols(), meta.min_x(), meta.max_x(), meta.rows(), meta.min_y(), meta.max_y() );
+      std::stringstream ss1_t;
+      ss1_t << "Vis Check: plane" << src_plane << " to " << targetplanes[src_plane][0] << " #" << _check_img_counter;
+      hcheck_flow[0] = new TH2D( ss1.str().c_str(), ss1_t.str().c_str(), meta.cols(), meta.min_x(), meta.max_x(), meta.rows(), meta.min_y(), meta.max_y() );
 
       std::stringstream ss2;
       ss2 << "hcheck_" << src_plane << "to" << targetplanes[src_plane][1] << "_" << _check_img_counter;
-      hcheck_flow[1] = new TH2D( ss2.str().c_str(), ss2.str().c_str(), meta.cols(), meta.min_x(), meta.max_x(), meta.rows(), meta.min_y(), meta.max_y() );
+      std::stringstream ss2_t;
+      ss2_t << "Vis Check: plane" << src_plane << " to " << targetplanes[src_plane][1] << " #" << _check_img_counter;      
+      hcheck_flow[1] = new TH2D( ss2.str().c_str(), ss2_t.str().c_str(), meta.cols(), meta.min_x(), meta.max_x(), meta.rows(), meta.min_y(), meta.max_y() );
 
       // we mark pixels in the source view that indicates it match found in target image
       std::stringstream ss3;
@@ -378,20 +390,23 @@ namespace larcv {
       hcheck_vismatch[1] = new TH2D( ss4.str().c_str(), ss4.str().c_str(), meta.cols(), meta.min_x(), meta.max_x(), meta.rows(), meta.min_y(), meta.max_y() );
     }
     
-    for (int r=0; r<(int)meta.rows(); r++) {
-      for (int c=0; c<(int)meta.cols(); c++) {
-	// loop over target plane
 	
-	if ( src_adc.pixel(r,c)<thresholds[src_plane] )
-	  continue;
+    for (int i=0; i<2; i++) {
+      int trgt_img = targetplanes[src_plane][i];
+      
+      
+      for (int r=0; r<(int)meta.rows(); r++) {
+	for (int c=0; c<(int)meta.cols(); c++) {
+	  // loop over target plane
+	  
+	  if ( src_adc.pixel(r,c)<thresholds[src_plane] )
+	    continue;
 	
-	nabove++;
-	
-	for (int i=0; i<2; i++) {
-	  int trgt_img = targetplanes[src_plane][i];
+	  nabove[i]++;
+      
 	  int flow = cropped_flow[i].pixel(r,c);
 	  float visi = cropped_visi[i].pixel(r,c);
-	
+	  
 	  if ( flow<=UBCropLArFlow::_NO_FLOW_VALUE_ ) {
 	    if ( visi<0.5) {
 	      ncorrect[i]++;
@@ -407,8 +422,27 @@ namespace larcv {
 	  int targetc = c+flow;
 	
 	  //std::cout << "(" << r << "," << c << ") flow=" << flow << " targetc=" << targetc << std::endl;
+	  float targetadc = 0;
+	  bool  goodtarget = false;
+	  try {
+	    targetadc = cropped_adc_v[ trgt_img ].pixel( r, targetc );
+	    goodtarget = true;
+	  }
+	  catch (std::exception& e) {
+	    goodtarget = false;
+	    std::cout << __PRETTY_FUNCTION__ << ":" << __FILE__ << "." << __LINE__ << ": good vis pixel flow out of bounds. "
+		      << "flow: " << c << "->" << targetc 
+		      << "\n\t"
+		      << e.what()
+		      << std::endl;
+	  }
 	  
-	  float targetadc = cropped_adc_v[ trgt_img ].pixel( r, targetc );
+	  if (!goodtarget) {
+	    nwrong_flowob[i]++;
+	    hcheck_vismatch[i]->SetBinContent( c+1, r+1, -4.0 );
+	    continue;
+	  }
+	  
 	  if ( visualize_flow ) {
 	    hcheck_flow[i]->SetBinContent( targetc+1, r+1, flow );
 	  }
@@ -441,17 +475,25 @@ namespace larcv {
       }
     }
 
-    // //if ( verbosity==0 ) {
-    // (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
-    //   << "[source plane " << src_plane << "-> target planes (" << targetplanes[src_plane][0] << "," << targetplanes[src_plane][1] << ")] "
-    //   << "(ncorrect=" << float(ncorrect[0])/float(nabove) << "," << float(ncorrect[1])/float(nabove) << ")" << std::endl;
-    // (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
-    //   << "  badvisi: ("      << float(nwrong_badvisi[0])/float(nabove) << "," << float(nwrong_badvisi[1])/float(nabove) << ")" << std::endl;
-    // (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)
-    //   << "  flow2nothing: (" << float(nwrong_flow2nothing[0])/float(nabove) << "," << float(nwrong_flow2nothing[1])/float(nabove) << ")" << std::endl;
-    // (*log).send(::larcv::msg::kDEBUG,    __FUNCTION__, __LINE__, __FILE__)      
-    //   << "  nolabel: (" << float(nwrong_nolabel[0])/float(nabove) << "," << float(nwrong_nolabel[1])/float(nabove) << ")" << std::endl;
-
+    for (int i=0; i<2; i++) {
+      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
+      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "
+		<< "[source plane " << src_plane << "-> target plane " << targetplanes[src_plane][i]  << "] "
+		<< "  ncorrect=" << float(ncorrect[i])/float(nabove[i]) << std::endl;
+      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
+      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "
+		<< "  badvisi: "      << float(nwrong_badvisi[i])/float(nabove[i]) << std::endl;
+      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
+      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "      
+		<< "  flow2nothing: " << float(nwrong_flow2nothing[i])/float(nabove[i]) << std::endl;
+      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)      
+      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "      
+		<< "  flow2OB: " << float(nwrong_flowob[i])/float(nabove[i]) << std::endl;
+      //(*log).send(::larcv::msg::kNORMAL,    __FUNCTION__, __LINE__, __FILE__)
+      std::cout << __FUNCTION__ << ":" << __LINE__ << "." << __FILE__ << " "      
+		<< "  nolabel: " << float(nwrong_nolabel[i])/float(nabove[i]) << std::endl;
+    }
+    
     // dump canvas and clean up
     if ( visualize_flow ) {
 
@@ -477,11 +519,13 @@ namespace larcv {
       
 
       c.cd(3);
+      // check vis
       hcheck_vismatch[0]->SetMaximum(3.0);
-      hcheck_vismatch[0]->SetMinimum(-3.0);
+      hcheck_vismatch[0]->SetMinimum(-4.0);
       hcheck_vismatch[0]->Draw("COLZ");
 
       c.cd(4);
+      // check flow
       hcheck_flow[0]->SetMaximum(500.0);
       hcheck_flow[0]->SetMinimum(-500.0);
       hcheck_flow[0]->Draw("COLZ");
@@ -584,29 +628,50 @@ namespace larcv {
 	float max_visi = UBCropLArFlow::_NO_FLOW_VALUE_;
 	for (int ri=ri_start; ri<ri_end; ri++) {
 	  for (int ci=ci_start; ci<ci_end; ci++) {
-	    if ( src_adc.pixel( ri, ci )>maxadc
-		 && flow.pixel(ri,ci)>UBCropLArFlow::_NO_FLOW_VALUE_ ) {
-	      maxadc = src_adc.pixel(ri,ci);
-	      oneabove = true;
-	      max_flow = flow.pixel(ri,ci);
-	      max_visi = visi.pixel(ri,ci);
-	      max_row = ri;
-	      max_col = ci;
+
+	    try {
+	    
+	      if ( src_adc.pixel( ri, ci )>maxadc
+		   && flow.pixel(ri,ci)>UBCropLArFlow::_NO_FLOW_VALUE_ ) {
+		maxadc = src_adc.pixel(ri,ci);
+		oneabove = true;
+		max_flow = flow.pixel(ri,ci);
+		max_visi = visi.pixel(ri,ci);
+		max_row = ri;
+		max_col = ci;
+	      }
+	    }
+	    catch ( std::exception& e ) {
+	      std::stringstream ss;
+	      ss << __PRETTY_FUNCTION__ << "@" << __FILE__ << "." << __LINE__ << ": error retrieving source info\n\t"
+		 << e.what() << std::endl;
+	      throw std::runtime_error( ss.str() );
 	    }
 	  }
 	}
 	
 	if ( !oneabove ) {
-	  out_src.set_pixel( ro, co, 0.0 );
-	  out_flow.set_pixel( ro, co, UBCropLArFlow::_NO_FLOW_VALUE_ );
-	  out_visi.set_pixel( ro, co, 0.0 );
+	  try {
+	    out_src.set_pixel( ro, co, 0.0 );
+	    out_flow.set_pixel( ro, co, UBCropLArFlow::_NO_FLOW_VALUE_ );
+	    out_visi.set_pixel( ro, co, 0.0 );
+	  }
+	  catch ( std::exception& e ) {
+	    std::stringstream ss;
+	    ss << __PRETTY_FUNCTION__ << "@" << __FILE__ << "." << __LINE__ << ": error setting empty output pixel\n\t"
+	       << out_src.meta().dump() << "\n\t"
+	       << out_flow.meta().dump() << "\n\t"
+	       << out_visi.meta().dump() << "\n\t"    
+	       << e.what() << std::endl;
+	    throw std::runtime_error( ss.str() );
+	  }
 	  continue;
 	}
 
 	// now we have to adjust the flow to get to the correct target pixel
 
 	int oflow = co + int(max_flow/col_downsample_factor);
-	if ( oflow>=out_src_meta.cols() || oflow<0 ) {
+	if ( oflow>=(int)out_src_meta.cols() || oflow<0 ) {
 	  std::stringstream ss;
 	  ss << __PRETTY_FUNCTION__ << "." << __LINE__ << ": adjusted flow " << oflow << " does not fall within max-pooled image. "
 	     << " original flow=" << max_flow << std::endl;
@@ -614,10 +679,19 @@ namespace larcv {
 	}
 
 	// checks out. fill the outputs
-	out_src.set_pixel( ro, co, src_adc.pixel( max_row, max_col ) );
-	out_visi.set_pixel( ro, co, visi.pixel( max_row, max_col ) );
-	out_flow.set_pixel( ro, co, flow.pixel( max_row, max_col ) );		
-	out_target.set_pixel( ro, co+oflow, target_adc.pixel( max_row, int(max_col+max_flow) ) );
+	try {
+	  out_src.set_pixel( ro, co, src_adc.pixel( max_row, max_col ) );
+	  out_visi.set_pixel( ro, co, visi.pixel( max_row, max_col ) );
+	  out_flow.set_pixel( ro, co, flow.pixel( max_row, max_col ) );		
+	  out_target.set_pixel( ro, oflow, target_adc.pixel( max_row, int(max_col+max_flow) ) );
+	}
+	catch ( std::exception& e ) {
+	  std::stringstream ss;
+	  ss << __PRETTY_FUNCTION__ << "@" << __FILE__ << "." << __LINE__ << ": error setting pooled output pixel.  "
+	     << "pooled flow=" << co << "->" << oflow << " max_flow=" << max_col << "->" << max_col+max_flow << "\n\t"
+	     << e.what() << std::endl;
+	  throw std::runtime_error( ss.str() );
+	}
       }//end of loop over output columns
     }//end of loop over output rows
 
@@ -646,7 +720,15 @@ namespace larcv {
 	  }
 	}
 	if ( oneabove ) {
-	  out_target.set_pixel( ro, co, maxadc );
+	  try {
+	    out_target.set_pixel( ro, co, maxadc );
+	  }
+	  catch (std::exception& e) {
+	    std::stringstream ss;
+	    ss << __PRETTY_FUNCTION__ << "@" << __FILE__ << "." << __LINE__ << ": error max-pooling output. \n\t"
+	       << e.what() << std::endl;
+	    throw std::runtime_error(ss.str());
+	  }
 	}
       }//end of output col loop
     }//end of output roow loop

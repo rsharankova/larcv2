@@ -48,8 +48,12 @@ OutputCroppedADCProducer: \"adc\"
 OutputCroppedVisiProducer: \"visi\"
 OutputCroppedFlowProducer: \"flow\"
 OutputFilename: \"baka_lf.root\"
-CheckFlow: false
-MakeCheckImage: false
+CheckFlow: true
+MakeCheckImage: true
+DoMaxPool: false
+RowDownsampleFactor: 2
+ColDownsampleFactor: 2
+MaxImages: 3
 """
 
 lfcfg = open("ublarflowcrop.cfg",'w')
