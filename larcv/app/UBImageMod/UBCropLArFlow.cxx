@@ -124,9 +124,13 @@ namespace larcv {
     larcv::EventImage2D* ev_out_adc  = (larcv::EventImage2D*)foutIO->get_data("image2d",_output_adc_producer);
     larcv::EventImage2D* ev_vis_adc  = (larcv::EventImage2D*)foutIO->get_data("image2d",_output_vis_producer);
     larcv::EventImage2D* ev_flo_adc  = (larcv::EventImage2D*)foutIO->get_data("image2d",_output_flo_producer);
+    ev_out_adc->clear();
+    ev_vis_adc->clear();
+    ev_flo_adc->clear();
 
     // Output Meta containers
     larcv::EventMeta*    ev_meta     = (larcv::EventMeta*)foutIO->get_data("meta",_output_meta_producer);
+    ev_meta->clear();
     
     // ----------------------------------------------------------------
 

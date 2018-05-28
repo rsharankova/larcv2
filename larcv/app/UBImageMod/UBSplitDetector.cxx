@@ -100,7 +100,9 @@ namespace larcv {
     
     larcv::EventBBox2D*  output_bbox  = (larcv::EventBBox2D*)mgr.get_data( "bbox2d",_output_bbox_producer);
     larcv::EventImage2D* output_imgs  = (larcv::EventImage2D*)mgr.get_data("image2d",_output_img_producer);
-
+    output_bbox->clear();
+    output_imgs->clear();
+    
     // ----------------------------------------------------------------
 
     // first define the lattice of 3D points

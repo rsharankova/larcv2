@@ -50,7 +50,7 @@ OutputCroppedFlowProducer: \"flow\"
 OutputCroppedMetaProducer: \"flowmeta\"
 OutputFilename: \"baka_lf.root\"
 CheckFlow: true
-MakeCheckImage: true
+MakeCheckImage: false
 DoMaxPool: true
 RowDownsampleFactor: 2
 ColDownsampleFactor: 2
@@ -77,9 +77,9 @@ lfcrop_algo.initialize()
 
 nentries = io.get_n_entries()
 print "Num Entries: ",nentries
-nentries = 1
+nentries = 3
 
-for n in range(nentries):
+for n in range(1,nentries):
     io.read_entry(n)
     split_algo.process( io )
     lfcrop_algo.process( io );
