@@ -52,10 +52,11 @@ namespace larcv {
     // functions
     static void make_cropped_flow_images( const int src_plane,
 					  const larcv::ImageMeta& srcmeta,
-					  const std::vector<larcv::Image2D>& croppedadc_v,
+					  std::vector<larcv::Image2D>& croppedadc_v,
 					  const std::vector<larcv::Image2D>& srcflow,
 					  const std::vector<larcv::Image2D>& srcvisi,
 					  const std::vector<float>& thresholds,
+					  const bool maxpool, const int row_ds_factor, const int col_ds_factor,					  
 					  std::vector<larcv::Image2D>& cropped_flow,
 					  std::vector<larcv::Image2D>& cropped_visi,
 					  const larcv::logger* log=NULL );
@@ -67,6 +68,14 @@ namespace larcv {
 				      const std::vector<larcv::Image2D>& cropped_visi,
 				      const bool visualize_flow,				      
 				      const larcv::logger* log=NULL, const int verbosity=2 );
+
+    static void maxPool( const int row_downsample_factor, const int col_downsample_factor,
+			 const larcv::Image2D& src_adc, const larcv::Image2D& target_adc,
+			 const larcv::Image2D& flow, const larcv::Image2D& visi,
+			 const std::vector<float>& thresholds,
+			 larcv::Image2D& ds_src_adc, larcv::Image2D& ds_target_adc,
+			 larcv::Image2D& ds_flow, larcv::Image2D& ds_visi );
+    
     
     // ----------------------------------------------------------------------
     // we save data ourselves
@@ -97,10 +106,14 @@ namespace larcv {
     std::vector<float> _thresholds_v;
     bool _check_flow;
     bool _make_check_image;
+    bool _do_maxpool;
+    int _row_downsample_factor;
+    int _col_downsample_factor;
     int _verbosity_;
 
 
     static int _check_img_counter;
+    static const float _NO_FLOW_VALUE_;
   };
 
   /**

@@ -20,7 +20,8 @@
 namespace larcv {
 
   static UBCropLArFlowProcessFactory __global_UBCropLArFlowProcessFactory__;
-  int UBCropLArFlow::_check_img_counter = 0;
+  int   UBCropLArFlow::_check_img_counter = 0;
+  const float UBCropLArFlow::_NO_FLOW_VALUE_ = -4000;
   
   UBCropLArFlow::UBCropLArFlow(const std::string name)
     : ProcessBase(name)
@@ -42,6 +43,15 @@ namespace larcv {
 
     _max_images             = cfg.get<int>("MaxImages",-1);
     _thresholds_v           = cfg.get< std::vector<float> >("Thresholds",std::vector<float>(3,10.0) );
+    _do_maxpool             = cfg.get<bool>("DoMaxPool",false);
+    if (_do_maxpool) {
+      _row_downsample_factor  = cfg.get<int>("RowDownsampleFactor");
+      _col_downsample_factor  = cfg.get<int>("ColDownSampleFactor");
+    }
+    else {
+      _row_downsample_factor = -1;
+      _col_downsample_factor = -1;
+    }
 
     // debug
     _check_flow             = cfg.get<bool>("CheckFlow",false);
@@ -137,9 +147,10 @@ namespace larcv {
       make_cropped_flow_images( src_plane, src_meta,
 				crop_v, flo_v, vis_v,
 				_thresholds_v,
+				_do_maxpool, _row_downsample_factor, _col_downsample_factor,
 				cropped_flow, cropped_visi,
 				&logger() );
-
+      
       // check the quality of the crop
       if ( _check_flow ) {
 	check_cropped_images( src_plane, crop_v, _thresholds_v, cropped_flow, cropped_visi, &logger(), 0 );
@@ -159,10 +170,11 @@ namespace larcv {
   
   void UBCropLArFlow::make_cropped_flow_images( const int src_plane,
 						const larcv::ImageMeta& srcmeta,
-						const std::vector<larcv::Image2D>& croppedadc_v,
+						std::vector<larcv::Image2D>& croppedadc_v,
 						const std::vector<larcv::Image2D>& srcflow,
 						const std::vector<larcv::Image2D>& srcvisi,
 						const std::vector<float>& thresholds,
+						const bool do_maxpool, const int row_ds_factor, const int col_ds_factor,
 						std::vector<larcv::Image2D>& cropped_flow,
 						std::vector<larcv::Image2D>& cropped_visi,
 						const larcv::logger* log ) {
@@ -179,9 +191,13 @@ namespace larcv {
     // srcflow: uncropped flow images
     // srcvisi: uncropped visibility images
     // thresholds: threshold below which pixel not considered matchable
+    // maxpool: if true, we do max-pooling of cropped image
+    // row_ds_factor: if maxpool=true, the downsampling factor for the row dim
+    // col_ds_factor: if maxpool=true, the downsampling factor for the col dim    
     //
     // output
     // ------
+    // croppedadc_v: if maxpool, then will modify croppedadc_v to maxpool
     // cropped_flow: cropped lar flow images
     // cropped_visi: cropped visibility images
     //
@@ -220,37 +236,46 @@ namespace larcv {
     const larcv::ImageMeta* target_meta[2];
     target_meta[0] = &croppedadc_v[ targetplanes[src_plane][0] ].meta();
     target_meta[1] = &croppedadc_v[ targetplanes[src_plane][1] ].meta();
-  
+
+    // if we perform maxpooling, we will need holders for maxpooled images
+    std::vector<larcv::Image2D> maxpooled_source;
+    std::vector<larcv::Image2D> maxpooled_target;
+    
     // we scan across the adc image + flow images.
     // we check and correct the un-cropped flow value and visibility
     //  in order to fill the cropped flow and visi images
-    
-    for (int r=0; r<(int)meta.rows(); r++) {
-    
-      float tick  = meta.pos_y(r);
-      int src_row = srcmeta.row(tick);
-    
-      for (int c=0; c<(int)meta.cols(); c++) {
-      
-	float wire  = meta.pos_x(c);
-	int src_col = srcmeta.col(wire);
-	
-	float adc   = adcimg.pixel(r,c);
-      
-	// two target images
-	for (int i=0; i<2; i++) {
 
-	  int trgt_idx = targetindex[src_plane][i];
+    // loop over the two targets
+    for (int i=0; i<2; i++) {
+
+      int trgt_idx = targetindex[src_plane][i];
+      int trgt_pl  = targetplanes[src_plane][i];
+      const larcv::Image2D& target_adc = croppedadc_v[trgt_pl];
+      const larcv::Image2D& source_vis = srcvisi[trgt_idx];
+      const larcv::Image2D& source_flo = srcflow[trgt_idx];
+
+      // loop over rows and cols
+      for (int r=0; r<(int)meta.rows(); r++) {
+    
+	float tick  = meta.pos_y(r);
+	int src_row = srcmeta.row(tick);
+	
+	for (int c=0; c<(int)meta.cols(); c++) {
 	  
-	  float visi = srcvisi[trgt_idx].pixel( src_row, src_col );
-	  float flow = srcflow[trgt_idx].pixel( src_row, src_col );
+	  float wire  = meta.pos_x(c);
+	  int src_col = srcmeta.col(wire);
+	
+	  // flow and visi values (in the source coordinate system)
+	  float visi = source_vis.pixel( src_row, src_col );
+	  float flow = source_flo.pixel( src_row, src_col );
 
 	  // is the target pixel in the cropped image?
 	  float target_wire = (wire + flow);
 	  if ( target_wire<target_meta[i]->min_x() || target_wire>=target_meta[i]->max_x() ) {
 	    // outside the target cropped image
-	    cropped_flow[i].set_pixel( r, c, -4000.0 );
+	    cropped_flow[i].set_pixel( r, c, UBCropLArFlow::_NO_FLOW_VALUE_ );
 	    cropped_visi[i].set_pixel( r, c, 0.0 );
+	    // this shouldn't happen unless a mistake?
 	  }
 	  else {
 
@@ -266,12 +291,42 @@ namespace larcv {
 	      cropped_visi[i].set_pixel( r, c, 0.0 );
 
 	  }
-	
+
+	  // max pool, if desired
+	  if ( do_maxpool && (row_ds_factor>1 || col_ds_factor>1) ) {
+	    // allocate empty images
+	    larcv::Image2D ds_src_adc;
+	    larcv::Image2D ds_target_adc;
+	    larcv::Image2D ds_flow;
+	    larcv::Image2D ds_visi;
+	    maxPool( row_ds_factor, col_ds_factor,
+		     adcimg, target_adc, cropped_flow[i], cropped_visi[i],
+		     thresholds,
+		     ds_src_adc, ds_target_adc, ds_flow, ds_visi );
+	    // store source maxpool
+	    maxpooled_source.emplace_back(std::move(ds_src_adc));
+	    // store target_maxpool
+	    maxpooled_target.emplace_back(std::move(ds_target_adc));
+	    
+	    // swap the flow and visi
+	    std::swap( cropped_flow[i], ds_flow );
+	    std::swap( cropped_visi[i], ds_visi );
+	  }
+	  
 	}// end of loop over target images
       
       }//end of loop over cols
     }//end of loop over rows
 
+    if (do_maxpool) {
+      // swap out downsampled adc images
+      std::swap( croppedadc_v[src_plane], maxpooled_source[0] );
+      for (int i=0; i<2; i++) {
+	int trgt_pl  = targetplanes[src_plane][i];
+	std::swap( croppedadc_v[trgt_pl], maxpooled_target[i] );
+      }
+    }
+    
     return;
   }
 
@@ -337,7 +392,7 @@ namespace larcv {
 	  int flow = cropped_flow[i].pixel(r,c);
 	  float visi = cropped_visi[i].pixel(r,c);
 	
-	  if ( flow<=-4000 ) {
+	  if ( flow<=UBCropLArFlow::_NO_FLOW_VALUE_ ) {
 	    if ( visi<0.5) {
 	      ncorrect[i]++;
 	      hcheck_vismatch[i]->SetBinContent( c+1, r+1, 1.0 );
@@ -452,6 +507,156 @@ namespace larcv {
   void UBCropLArFlow::finalize()
   {
     foutIO->finalize();
+  }
+
+  void UBCropLArFlow::maxPool( const int row_downsample_factor, const int col_downsample_factor,
+			       const larcv::Image2D& src_adc, const larcv::Image2D& target_adc,
+			       const larcv::Image2D& flow, const larcv::Image2D& visi,
+			       const std::vector<float>& thresholds,
+			       larcv::Image2D& ds_src_adc, larcv::Image2D& ds_target_adc,
+			       larcv::Image2D& ds_flow, larcv::Image2D& ds_visi ) {
+    
+    // to make things easy, we require that the downsampling factors divide evenly into the rows and cols
+    if ( src_adc.meta().rows()%row_downsample_factor!=0 ) {
+      std::stringstream ss;
+      ss << "Rows of image (" << src_adc.meta().rows() << ") are not a multiple of the row downsample factor " << row_downsample_factor << std::endl;
+      throw std::runtime_error( ss.str() );
+    }
+    if ( src_adc.meta().cols()%col_downsample_factor!=0 ) {
+      std::stringstream ss;
+      ss << "Cols of image (" << src_adc.meta().cols() << ") are not a multiple of the col downsample factor " << col_downsample_factor << std::endl;
+      throw std::runtime_error( ss.str() );
+    }
+
+
+    // make the output images
+
+    // source ADC
+    const larcv::ImageMeta& meta_src = src_adc.meta();
+    larcv::ImageMeta out_meta_src( meta_src.min_x(), meta_src.min_y(), meta_src.max_x(), meta_src.max_y(),
+				   meta_src.rows()/row_downsample_factor, meta_src.cols()/col_downsample_factor,
+				   meta_src.id(), meta_src.unit() );
+    larcv::Image2D out_src( out_meta_src );
+
+    // target ADC
+    const larcv::ImageMeta& meta_target = target_adc.meta();
+    larcv::ImageMeta out_meta_target( meta_target.min_x(), meta_target.min_y(), meta_target.max_x(), meta_target.max_y(),
+				   meta_target.rows()/row_downsample_factor, meta_target.cols()/col_downsample_factor,
+				   meta_target.id(), meta_target.unit() );
+    larcv::Image2D out_target( out_meta_target );
+    out_target.paint(0.0);
+    
+    // flow ADC
+    const larcv::ImageMeta& meta_flow = flow.meta();
+    larcv::ImageMeta out_meta_flow( meta_flow.min_x(), meta_flow.min_y(), meta_flow.max_x(), meta_flow.max_y(),
+				   meta_flow.rows()/row_downsample_factor, meta_flow.cols()/col_downsample_factor,
+				   meta_flow.id(), meta_flow.unit() );
+    larcv::Image2D out_flow( out_meta_flow );
+
+    // visi ADC
+    const larcv::ImageMeta& meta_visi = visi.meta();
+    larcv::ImageMeta out_meta_visi( meta_visi.min_x(), meta_visi.min_y(), meta_visi.max_x(), meta_visi.max_y(),
+				   meta_visi.rows()/row_downsample_factor, meta_visi.cols()/col_downsample_factor,
+				   meta_visi.id(), meta_visi.unit() );
+    larcv::Image2D out_visi( out_meta_visi );
+    out_visi.paint(0.0);
+
+    // we loop through output rows and cols
+    // we ask which pixel in the neighborhood of the src and target image is largest
+    // for the source image, that pixel position is used to determine what value of the flow
+    //  and visibility are chosen.
+    // the flow is corrected to be on the scale of the downsampled images
+    const larcv::ImageMeta& out_src_meta = out_src.meta();
+    for ( int ro=0; ro<(int)out_src_meta.rows(); ro++) {
+      for (int co=0; co<(int)out_src_meta.cols(); co++) {
+
+	int ri_start = ro*row_downsample_factor;
+	int ri_end   = (ro+1)*row_downsample_factor;
+	int ci_start = co*col_downsample_factor;
+	int ci_end   = (co+1)*col_downsample_factor;
+
+	// for the block of input pixels, we determine maximum ADC deposited (above threshold)
+	bool oneabove = false;
+	float maxadc = thresholds[ (int)(meta_src.id()) ];
+	int max_row = -1;
+	int max_col = -1;
+	float max_flow = UBCropLArFlow::_NO_FLOW_VALUE_;
+	float max_visi = UBCropLArFlow::_NO_FLOW_VALUE_;
+	for (int ri=ri_start; ri<ri_end; ri++) {
+	  for (int ci=ci_start; ci<ci_end; ci++) {
+	    if ( src_adc.pixel( ri, ci )>maxadc
+		 && flow.pixel(ri,ci)>UBCropLArFlow::_NO_FLOW_VALUE_ ) {
+	      maxadc = src_adc.pixel(ri,ci);
+	      oneabove = true;
+	      max_flow = flow.pixel(ri,ci);
+	      max_visi = visi.pixel(ri,ci);
+	      max_row = ri;
+	      max_col = ci;
+	    }
+	  }
+	}
+	
+	if ( !oneabove ) {
+	  out_src.set_pixel( ro, co, 0.0 );
+	  out_flow.set_pixel( ro, co, UBCropLArFlow::_NO_FLOW_VALUE_ );
+	  out_visi.set_pixel( ro, co, 0.0 );
+	  continue;
+	}
+
+	// now we have to adjust the flow to get to the correct target pixel
+
+	int oflow = co + int(max_flow/col_downsample_factor);
+	if ( oflow>=out_src_meta.cols() || oflow<0 ) {
+	  std::stringstream ss;
+	  ss << __PRETTY_FUNCTION__ << "." << __LINE__ << ": adjusted flow " << oflow << " does not fall within max-pooled image. "
+	     << " original flow=" << max_flow << std::endl;
+	  throw std::runtime_error( ss.str() );
+	}
+
+	// checks out. fill the outputs
+	out_src.set_pixel( ro, co, src_adc.pixel( max_row, max_col ) );
+	out_visi.set_pixel( ro, co, visi.pixel( max_row, max_col ) );
+	out_flow.set_pixel( ro, co, flow.pixel( max_row, max_col ) );		
+	out_target.set_pixel( ro, co+oflow, target_adc.pixel( max_row, int(max_col+max_flow) ) );
+      }//end of loop over output columns
+    }//end of loop over output rows
+
+    // the target image will be incomplete for pixels where source did not project into it
+    // so we fill the remainder here
+    const larcv::ImageMeta& out_tar_meta = out_target.meta();    
+    for ( int ro=0; ro<(int)out_tar_meta.rows(); ro++) {
+      for (int co=0; co<(int)out_tar_meta.cols(); co++) {
+	if ( out_target.pixel(ro,co)>thresholds[ (int)(meta_target.id()) ] )
+	  continue; // because already filled
+	
+	int ri_start = ro*row_downsample_factor;
+	int ri_end   = (ro+1)*row_downsample_factor;
+	int ci_start = co*col_downsample_factor;
+	int ci_end   = (co+1)*col_downsample_factor;
+
+	// for the block of input pixels, we determine maximum ADC deposited (above threshold)
+	bool oneabove = false;
+	float maxadc = thresholds[ (int)(meta_target.id()) ];
+	for (int ri=ri_start; ri<ri_end; ri++) {
+	  for (int ci=ci_start; ci<ci_end; ci++) {
+	    if ( target_adc.pixel( ri, ci )>maxadc ) {
+	      oneabove = true;
+	      maxadc = target_adc.pixel(ri,ci);
+	    }
+	  }
+	}
+	if ( oneabove ) {
+	  out_target.set_pixel( ro, co, maxadc );
+	}
+      }//end of output col loop
+    }//end of output roow loop
+    
+    // output by a swap to avoid a copy
+    // object passed to us gets destroyed when function ends
+    std::swap( ds_src_adc,    out_src );
+    std::swap( ds_target_adc, out_target );
+    std::swap( ds_flow,       out_flow );
+    std::swap( ds_visi,       out_visi );
   }
   
 }
