@@ -45,6 +45,8 @@ namespace larcv {
 
     _max_images             = cfg.get<int>("MaxImages",-1);
     _thresholds_v           = cfg.get< std::vector<float> >("Thresholds",std::vector<float>(3,10.0) );
+
+    // Max pooling. Shrink image by some downsampling factor. must be factor of image size.
     _do_maxpool             = cfg.get<bool>("DoMaxPool",false);
     if (_do_maxpool) {
       _row_downsample_factor  = cfg.get<int>("RowDownsampleFactor");
@@ -55,9 +57,13 @@ namespace larcv {
       _col_downsample_factor = -1;
     }
 
-    // debug
-    _check_flow             = cfg.get<bool>("CheckFlow",false);
-    _make_check_image       = cfg.get<bool>("MakeCheckImage",false);
+    // sparsity requirement: prevent cropping over the same regions
+    _limit_overlap        = cfg.get<bool>("LimitOverlap",false);
+    _max_overlap_fraction = cfg.get<float>("MaxOverlapFraction", 0.5 );
+
+    // debug options
+    _check_flow             = cfg.get<bool>("CheckFlow",false);      // output to screen, checks of cropped images
+    _make_check_image       = cfg.get<bool>("MakeCheckImage",false); // dump png of image checks
     if ( _make_check_image )
       gStyle->SetOptStat(0);
       
@@ -144,11 +150,40 @@ namespace larcv {
     const larcv::ImageMeta& src_meta = img_v[2].meta();
     int ncrops = cropped_v.size()/3;
     int nsaved = 0;
+
+    std::vector<larcv::Image2D> overlap_img; // store an image used to keep track of previously cropped pixels
+    if ( _limit_overlap ) {
+      larcv::Image2D overlap( img_v[src_plane].meta() );
+      overlap.paint(0.0);
+      overlap_img.emplace_back( std::move(overlap) );
+    }
+    
     for (int icrop=0; icrop<ncrops; icrop++) {
-      // this is a copy. not greate. could swap if needed ...
+
+      // this is a copy. not great. could swap if needed ...
       std::vector<larcv::Image2D> crop_v;
       for (int i=0; i<3; i++) {
 	crop_v.push_back( cropped_v.at( 3*icrop+i ) );
+      }
+
+      // if limiting overlap, check that we are not overlapping too many pixels
+      if ( _limit_overlap ) {
+	const larcv::ImageMeta& cropped_src_meta = crop_v[src_plane].meta();
+	float npix_overlap = 0.0;
+	int crop_r_start = src_meta.row( cropped_src_meta.min_y() );
+	int crop_c_start = src_meta.col( cropped_src_meta.min_x() );
+	for (int r=crop_r_start; r<crop_r_start+(int)cropped_src_meta.rows(); r++) {
+	  for (int c=crop_c_start; c<crop_c_start+(int)cropped_src_meta.cols(); c++) {
+	    if ( overlap_img[0].pixel(r,c)>0 )
+	      npix_overlap+=1.0;
+	  }
+	}
+	float frac_overlap = npix_overlap/float(cropped_src_meta.rows()*cropped_src_meta.cols());
+	if ( frac_overlap>_max_overlap_fraction ) {
+	  LARCV_NORMAL() << "Skipping overlapping image. Frac overlap=" << frac_overlap << "." << std::endl;
+	  continue;
+	}
+	std::cout << "Overlap fraction: " << frac_overlap << std::endl;
       }
       
       LARCV_DEBUG() << "Start crop of Flow and Visibility images of image #" << icrop << std::endl;
@@ -169,7 +204,7 @@ namespace larcv {
 	UBCropLArFlow::_check_img_counter++;
 
 	// check filter: has minimum visible pixels
-	if ( check_results[1]>=50 && check_results[2]>=50 ) {
+	if ( check_results[1]>=100 && check_results[2]>=100 ) {
 	  passes_check_filter = true;
 	}
 	else {
@@ -178,6 +213,20 @@ namespace larcv {
       }
 
       if ( passes_check_filter ) {
+
+
+	// if we are limiting overlaps, we need to mark overlap image
+	if ( _limit_overlap ) {
+	  const larcv::ImageMeta& cropped_src_meta = crop_v[src_plane].meta();
+	  int crop_r_start = src_meta.row( cropped_src_meta.min_y() );
+	  int crop_c_start = src_meta.col( cropped_src_meta.min_x() );
+	  for (int r=crop_r_start; r<crop_r_start+(int)cropped_src_meta.rows(); r++) {
+	    for (int c=crop_c_start; c<crop_c_start+(int)cropped_src_meta.cols(); c++) {
+	      overlap_img[0].set_pixel(r,c,1.0);
+	    }
+	  }
+	}
+	
 	ev_out_adc->emplace( std::move(crop_v) );
 	ev_vis_adc->emplace( std::move(cropped_visi) );
 	ev_flo_adc->emplace( std::move(cropped_flow) );

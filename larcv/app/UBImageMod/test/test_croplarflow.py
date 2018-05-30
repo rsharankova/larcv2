@@ -27,7 +27,7 @@ DebugImage: false
 MaxImages: 20
 RandomizeCrops: true
 MaxRandomAttempts: 50
-MinFracPixelsInCrop: 0.001
+MinFracPixelsInCrop: 0.0001
 """
 
 fcfg = open("ubsplit.cfg",'w')
@@ -50,11 +50,13 @@ OutputCroppedFlowProducer: \"flow\"
 OutputCroppedMetaProducer: \"flowmeta\"
 OutputFilename: \"baka_lf.root\"
 CheckFlow: true
-MakeCheckImage: false
+MakeCheckImage: true
 DoMaxPool: true
 RowDownsampleFactor: 2
 ColDownsampleFactor: 2
-MaxImages: 3
+MaxImages: 5
+LimitOverlap: true
+MaxOverlapFraction: 0.2
 """
 
 lfcfg = open("ublarflowcrop.cfg",'w')
@@ -77,9 +79,9 @@ lfcrop_algo.initialize()
 
 nentries = io.get_n_entries()
 print "Num Entries: ",nentries
-nentries = 3
+nentries = 1
 
-for n in range(1,nentries):
+for n in range(0,nentries):
     io.read_entry(n)
     split_algo.process( io )
     lfcrop_algo.process( io );

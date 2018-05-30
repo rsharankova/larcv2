@@ -110,6 +110,8 @@ namespace larcv {
     bool _do_maxpool;
     int _row_downsample_factor;
     int _col_downsample_factor;
+    bool _limit_overlap;
+    float _max_overlap_fraction;
     int _verbosity_;
 
 
