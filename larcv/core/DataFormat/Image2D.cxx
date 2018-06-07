@@ -239,12 +239,12 @@ namespace larcv {
     float max_y    = _meta.pos_y(max_row);
 
     
-    std::cout<<"Cropping! Requested:" << crop_meta.dump() << std::endl;
+    //std::cout<<"Cropping! Requested:" << crop_meta.dump() << std::endl;
 
-    std::cout << "Original:" <<_meta.dump()<<std::endl;
+    //std::cout << "Original:" <<_meta.dump()<<std::endl;
 
-    std::cout<<min_col<< " => " << max_col << " ... " << min_row << " => " << max_row << std::endl;
-    std::cout<<_meta.width() << " / " << _meta.cols() << " = " << _meta.pixel_width() << std::endl;
+    //std::cout<<min_col<< " => " << max_col << " ... " << min_row << " => " << max_row << std::endl;
+    //std::cout<<_meta.width() << " / " << _meta.cols() << " = " << _meta.pixel_width() << std::endl;
 
     // ImageMeta res_meta( (max_col - min_col + 1) * _meta.pixel_width(),
     //                     (max_row - min_row + 1) * _meta.pixel_height(),
@@ -254,7 +254,7 @@ namespace larcv {
     //                     _meta.min_y() + min_row * _meta.pixel_height(),
     //                     _meta.id(), _meta.unit());
     ImageMeta res_meta( min_x, min_y, max_x, max_y, max_row-min_row, max_col-min_col, _meta.id(), _meta.unit() );
-    std::cout << "cropped output res_meta: " << res_meta.dump() << std::endl;
+    //std::cout << "cropped output res_meta: " << res_meta.dump() << std::endl;
 		       
     // std::vector<float> img;
     // img.resize(res_meta.cols() * res_meta.rows());
